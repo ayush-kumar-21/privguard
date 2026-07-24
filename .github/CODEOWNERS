@@ -1,0 +1,6 @@
+# Code owners — GitHub auto-requests a review from the owner on every PR,
+# and (with branch protection, see CONTRIBUTING.md) their approval is REQUIRED
+# before anything can merge into `main`.
+#
+# Repo owner — GitHub requires the @ prefix for usernames here.
+* @ayush-kumar-21
