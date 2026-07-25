@@ -2,5 +2,5 @@
 # and (with branch protection, see CONTRIBUTING.md) their approval is REQUIRED
 # before anything can merge into `main`.
 #
-# TODO: replace @OWNER with the repo owner's real GitHub username before pushing.
-* @OWNER
+# Repo owner — GitHub requires the @ prefix for usernames here.
+* @ayush-kumar-21
