@@ -165,7 +165,7 @@ def _execute_grouped(spec, policy: Policy, rho: float, seed: bytes, delta_partit
     seen_groups = defaultdict(set)
     rowcount = defaultdict(int)
     group_true = defaultdict(float)
-    group_count = defaultdict(int)
+    group_units = defaultdict(int)   # distinct privacy units per group (partition signal)
     for row in rows:
         unit, g = row[0], row[1]
         if g not in seen_groups[unit]:
@@ -175,29 +175,32 @@ def _execute_grouped(spec, policy: Policy, rho: float, seed: bytes, delta_partit
         key = (unit, g)
         if rowcount[key] >= C:                   # L-inf bound
             continue
+        if rowcount[key] == 0:                   # first row for this (unit, group)
+            group_units[g] += 1
         rowcount[key] += 1
-        group_count[g] += 1
         group_true[g] += 1 if spec.agg == "COUNT" else clamp(float(row[2] or 0.0), policy.lo, policy.hi)
 
-    # DP partition selection (spend rho_part), then noise the survivors (rho_agg)
+    # DP partition selection (spend rho_part), then noise the survivors (rho_agg).
+    # The selection gate counts DISTINCT privacy units per group -> per-group
+    # sensitivity 1 (a unit is present or not), which keeps the threshold small.
     rho_part, rho_agg = rho * 0.2, rho * 0.8
     eps_part = math.sqrt(2.0 * rho_part)
-    scale_part = C / eps_part
+    scale_part = 1.0 / eps_part
     tau = 1.0 + scale_part * math.log(1.0 / (2.0 * delta_partition))
 
     part_rng = KeyedRandom(seed + b"partition")
     agg_rng = KeyedRandom(seed + b"aggregate")
     per_sens = M if spec.agg == "SUM" else 1.0
-    delta1 = G * C * per_sens
-    delta2 = math.sqrt(G) * C * per_sens
+    delta2 = math.sqrt(G) * C * per_sens   # L2 sensitivity for the Gaussian mechanism
 
+    # Multi-output aggregate -> Gaussian (composes additively in rho under zCDP).
     results, suppressed = [], 0
-    for g in sorted(group_count):
-        noisy_c = group_count[g] + mechanisms.laplace(scale_part, part_rng)
+    for g in sorted(group_units):
+        noisy_c = group_units[g] + mechanisms.laplace(scale_part, part_rng)
         if noisy_c <= tau:
             suppressed += 1
             continue
-        noisy_val = group_true[g] + _noise(policy.mechanism, rho_agg, delta1, delta2, agg_rng)
+        noisy_val = group_true[g] + mechanics_gaussian(delta2, rho_agg, agg_rng)
         results.append({spec.group_by: g, "value": round(noisy_val, 4)})
     return results, suppressed, delta2
 
