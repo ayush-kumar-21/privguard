@@ -1,43 +1,169 @@
-import { useEffect, useState } from 'react'
-import client from './api/client'
+import { lazy, useEffect, type ReactNode } from 'react'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+
+import { AppShell } from './components/app-shell/AppShell'
+import { Mark } from './components/app-shell/Wordmark'
+import { RouteGate } from './components/states/RoleGate'
+import { useAuth } from './stores/auth'
+import LoginPage from './routes/login'
+import NotFoundPage from './routes/not-found'
+
+// Routes are split so CodeMirror and Recharts are fetched only by the screens
+// that actually draw with them, which keeps the first paint small.
+const DashboardPage = lazy(() => import('./routes/dashboard'))
+const ConsolePage = lazy(() => import('./routes/console'))
+const AttackLabPage = lazy(() => import('./routes/attack-lab'))
+const PatientsPage = lazy(() => import('./routes/data/patients'))
+const VisitsPage = lazy(() => import('./routes/data/visits'))
+const DiagnosesPage = lazy(() => import('./routes/data/diagnoses'))
+const LabsPage = lazy(() => import('./routes/data/labs'))
+const PoliciesPage = lazy(() => import('./routes/governance/policies'))
+const GrantsPage = lazy(() => import('./routes/governance/grants'))
+const RolesPage = lazy(() => import('./routes/governance/roles'))
+const AuditPage = lazy(() => import('./routes/governance/audit'))
+const LedgerPage = lazy(() => import('./routes/governance/ledger'))
+
+/** Held while the refresh token is exchanged, so routes never flash to login. */
+function BootSplash() {
+  return (
+    <div className="grid min-h-dvh place-items-center bg-bg">
+      <div className="flex items-center gap-3 text-muted">
+        <Mark size={18} />
+        <span className="font-serif text-h3">PrivGuard</span>
+      </div>
+    </div>
+  )
+}
+
+function RequireAuth({ children }: { children: ReactNode }) {
+  const principal = useAuth((state) => state.principal)
+  const booting = useAuth((state) => state.booting)
+  const location = useLocation()
+
+  if (booting) return <BootSplash />
+  if (!principal) return <Navigate to="/login" state={{ from: location }} replace />
+  return <>{children}</>
+}
 
 export default function App() {
-  const [health, setHealth] = useState<string>('checking…')
+  const hydrate = useAuth((state) => state.hydrate)
 
   useEffect(() => {
-    client
-      .get('/health/')
-      .then((r) => setHealth(r.data.status))
-      .catch(() => setHealth('unreachable'))
-  }, [])
+    void hydrate()
+  }, [hydrate])
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800">
-      <header className="border-b bg-white px-6 py-4 shadow-sm">
-        <h1 className="text-xl font-semibold">PrivGuard</h1>
-        <p className="text-sm text-slate-500">
-          Differentially Private Query Gateway — BCSE307L
-        </p>
-      </header>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
 
-      <main className="mx-auto max-w-3xl p-6">
-        <div className="rounded-lg border bg-white p-5 shadow-sm">
-          <h2 className="mb-3 font-medium">Backend status</h2>
-          <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-sm">
-            <span
-              className={
-                'h-2 w-2 rounded-full ' +
-                (health === 'ok' ? 'bg-emerald-500' : 'bg-amber-500')
-              }
-            />
-            API: {health}
-          </span>
-          <p className="mt-4 text-sm text-slate-500">
-            Scaffold ready. Next screens: Login, Budget Dashboard, SQL Console,
-            Policy Admin, Audit, Attack Lab.
-          </p>
-        </div>
-      </main>
-    </div>
+      <Route
+        element={
+          <RequireAuth>
+            <AppShell />
+          </RequireAuth>
+        }
+      >
+        <Route index element={<DashboardPage />} />
+        <Route
+          path="console"
+          element={
+            <RouteGate roles={['dp_analyst', 'auditor']}>
+              <ConsolePage />
+            </RouteGate>
+          }
+        />
+
+        <Route path="data">
+          <Route index element={<Navigate to="/data/patients" replace />} />
+          <Route
+            path="patients"
+            element={
+              <RouteGate roles={['clinician']}>
+                <PatientsPage />
+              </RouteGate>
+            }
+          />
+          <Route
+            path="visits"
+            element={
+              <RouteGate roles={['clinician']}>
+                <VisitsPage />
+              </RouteGate>
+            }
+          />
+          <Route
+            path="diagnoses"
+            element={
+              <RouteGate roles={['clinician']}>
+                <DiagnosesPage />
+              </RouteGate>
+            }
+          />
+          <Route
+            path="labs"
+            element={
+              <RouteGate roles={['clinician']}>
+                <LabsPage />
+              </RouteGate>
+            }
+          />
+        </Route>
+
+        <Route path="governance">
+          <Route index element={<Navigate to="/governance/audit" replace />} />
+          <Route
+            path="policies"
+            element={
+              <RouteGate roles={['dba']}>
+                <PoliciesPage />
+              </RouteGate>
+            }
+          />
+          <Route
+            path="grants"
+            element={
+              <RouteGate roles={['dba']}>
+                <GrantsPage />
+              </RouteGate>
+            }
+          />
+          <Route
+            path="roles"
+            element={
+              <RouteGate roles={['dba']}>
+                <RolesPage />
+              </RouteGate>
+            }
+          />
+          <Route
+            path="audit"
+            element={
+              <RouteGate roles={['auditor', 'dp_analyst']}>
+                <AuditPage />
+              </RouteGate>
+            }
+          />
+          <Route
+            path="ledger"
+            element={
+              <RouteGate roles={['auditor']}>
+                <LedgerPage />
+              </RouteGate>
+            }
+          />
+        </Route>
+
+        <Route
+          path="attack-lab"
+          element={
+            <RouteGate roles={['dp_analyst', 'auditor']}>
+              <AttackLabPage />
+            </RouteGate>
+          }
+        />
+
+        <Route path="*" element={<NotFoundPage />} />
+      </Route>
+    </Routes>
   )
 }
