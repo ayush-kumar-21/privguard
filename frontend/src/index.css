@@ -1,3 +1,272 @@
+/* ---------------------------------------------------------------------------
+   PrivGuard design system
+   Typeface: Anthropic Serif (brand / display / prose) + Geist (UI chrome)
+             + Geist Mono (every number, SQL string and hash).
+
+   Anthropic Serif is a licensed typeface, so it is not vendored here. The stack
+   below picks it up automatically when it is installed locally, or when the
+   licensed webfont files are dropped into `public/fonts/` and
+   `src/styles/anthropic-serif.css` is imported from main.tsx. Until then the
+   self-hosted Source Serif 4 fallback carries the same typographic role.
+--------------------------------------------------------------------------- */
+@import "@fontsource-variable/source-serif-4";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  /*
+    Every colour is stored once as bare RGB channels. Tailwind consumes the
+    channels so `bg-accent/35` can compose an alpha, and each `--x` alias below
+    rebuilds the plain colour for the places that need one directly: `body`,
+    the global border rule, and the SVG attributes Recharts writes.
+  */
+  :root {
+    /* neutrals (light) */
+    --bg-rgb: 250 250 250;
+    --surface-rgb: 255 255 255;
+    --surface-2-rgb: 244 244 245;
+    --border-rgb: 228 228 231;
+    --border-strong-rgb: 212 212 216;
+    --text-rgb: 24 24 27;
+    --text-muted-rgb: 82 82 91;
+    --text-faint-rgb: 161 161 170;
+
+    /* single interactive accent (soft azure) */
+    --accent-rgb: 59 111 224;
+    --accent-hover-rgb: 49 95 196;
+    --accent-press-rgb: 42 84 174;
+    --accent-fg-rgb: 255 255 255;
+    --accent-weak-rgb: 234 240 254;
+
+    /* semantic: privacy budget + status */
+    --ok-rgb: 30 158 106;
+    --warn-rgb: 180 121 26;
+    --danger-rgb: 214 69 69;
+    --ok-weak-rgb: 228 246 238;
+    --warn-weak-rgb: 251 240 220;
+    --danger-weak-rgb: 251 231 231;
+
+    /* chart series 2: the warm opposite of the accent. Both themes pass the
+       dataviz validator (lightness band, chroma floor, CVD separation,
+       normal-vision floor, contrast) against their own surface. */
+    --series-2-rgb: 235 104 52;
+
+    color-scheme: light;
+  }
+
+  .dark {
+    --bg-rgb: 11 11 15;
+    --surface-rgb: 19 19 24;
+    --surface-2-rgb: 27 27 34;
+    --border-rgb: 38 38 46;
+    --border-strong-rgb: 52 52 62;
+    --text-rgb: 244 244 246;
+    --text-muted-rgb: 155 155 166;
+    --text-faint-rgb: 110 110 120;
+
+    --accent-rgb: 91 141 239;
+    --accent-hover-rgb: 110 156 242;
+    --accent-press-rgb: 75 123 224;
+    --accent-fg-rgb: 11 11 15;
+    --accent-weak-rgb: 23 35 59;
+
+    --ok-rgb: 61 190 139;
+    --warn-rgb: 224 169 58;
+    --danger-rgb: 239 90 90;
+    --ok-weak-rgb: 16 36 28;
+    --warn-weak-rgb: 42 33 16;
+    --danger-weak-rgb: 42 20 20;
+
+    --series-2-rgb: 217 89 38;
+
+    color-scheme: dark;
+  }
+
+  :root,
+  .dark {
+    --bg: rgb(var(--bg-rgb));
+    --surface: rgb(var(--surface-rgb));
+    --surface-2: rgb(var(--surface-2-rgb));
+    --border: rgb(var(--border-rgb));
+    --border-strong: rgb(var(--border-strong-rgb));
+    --text: rgb(var(--text-rgb));
+    --text-muted: rgb(var(--text-muted-rgb));
+    --text-faint: rgb(var(--text-faint-rgb));
+    --accent: rgb(var(--accent-rgb));
+    --accent-hover: rgb(var(--accent-hover-rgb));
+    --accent-press: rgb(var(--accent-press-rgb));
+    --accent-fg: rgb(var(--accent-fg-rgb));
+    --accent-weak: rgb(var(--accent-weak-rgb));
+    --ok: rgb(var(--ok-rgb));
+    --ok-weak: rgb(var(--ok-weak-rgb));
+    --warn: rgb(var(--warn-rgb));
+    --warn-weak: rgb(var(--warn-weak-rgb));
+    --danger: rgb(var(--danger-rgb));
+    --danger-weak: rgb(var(--danger-weak-rgb));
+
+    /* radii: one scale */
+    --radius-sm: 8px;
+    --radius: 10px;
+    --radius-lg: 14px;
+
+    --ring: var(--accent);
+
+    /* chart roles: series 1 is the product accent, so charts and UI share one
+       identity colour. */
+    --series-1: var(--accent);
+    --series-2: rgb(var(--series-2-rgb));
+    --grid: var(--border);
+    --axis: var(--border-strong);
+
+    /* typefaces */
+    --font-serif: "Anthropic Serif", "Copernicus", "Source Serif 4 Variable",
+      "Tiempos Text", Georgia, serif;
+    --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "Geist Mono Variable", ui-monospace, "SFMono-Regular", monospace;
+
+    /* one easing for every transition */
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Brand voice: the serif carries titles, section heads and prose. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    text-wrap: balance;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+  }
+
+  /* Accent focus ring on everything focusable, both themes. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: var(--accent-weak);
+    color: var(--text);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border: 3px solid var(--bg);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--text-faint);
+  }
+}
+
+@layer components {
+  /* Every rendered number goes through .num: mono + tabular figures. */
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  .serif {
+    font-family: var(--font-serif);
+  }
+
+  /* Uppercase micro label used for stat tiles, table heads and field labels. */
+  .label-micro {
+    font-size: 11px;
+    line-height: 1.2;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+
+  /* Quiet grid motif for the login brand panel. No gradients, no blobs. */
+  .grid-motif {
+    background-image: linear-gradient(
+        to right,
+        var(--border) 1px,
+        transparent 1px
+      ),
+      linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+    background-size: 32px 32px;
+    mask-image: radial-gradient(ellipse 78% 62% at 50% 42%, #000 20%, transparent 78%);
+    -webkit-mask-image: radial-gradient(
+      ellipse 78% 62% at 50% 42%,
+      #000 20%,
+      transparent 78%
+    );
+  }
+}
+
+@layer utilities {
+  /* Scrollable region that must never push the page body sideways. */
+  .scroll-x {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+}
+
+/*
+  A grid with no explicit template lays its items out in implicit `auto`
+  tracks, and an `auto` track takes the widest item's max-content size. One
+  1000px-wide audit table inside a `grid gap-6` page wrapper therefore drags
+  the whole document sideways, even though the table sits in its own
+  `overflow-x: auto` box. Clamping the implicit track fixes every such grid at
+  once, including responsive ones below their breakpoint, and leaves any
+  explicit `grid-template-columns` untouched.
+*/
+.grid {
+  grid-auto-columns: minmax(0, 1fr);
+}
+
+/* MOTION 3: every animation collapses to instant when the OS asks. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

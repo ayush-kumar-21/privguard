@@ -1,6 +1,11 @@
 {
   "compilerOptions": {
+    // A referenced project may not disable emit, so send its output to a temp
+    // directory instead. Otherwise `tsc -b` drops vite.config.js and
+    // vite.config.d.ts next to the source on every build.
     "composite": true,
+    "outDir": "./node_modules/.tmp",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
     "skipLibCheck": true,
     "module": "ESNext",
     "moduleResolution": "bundler",

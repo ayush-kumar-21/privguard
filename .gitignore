@@ -23,6 +23,7 @@ media/
 # --- Node / Vite ---
 node_modules/
 frontend/dist/
+*.tsbuildinfo
 npm-debug.log*
 yarn-error.log*
 
