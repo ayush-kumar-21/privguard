@@ -1,7 +1,7 @@
 """PrivGuard URL configuration."""
 from django.contrib import admin
 from django.http import JsonResponse
-from django.urls import path
+from django.urls import include, path
 from rest_framework_simplejwt.views import (
     TokenObtainPairView, TokenRefreshView, TokenBlacklistView,
 )
@@ -22,4 +22,6 @@ urlpatterns = [
     path("api/auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/auth/logout/", TokenBlacklistView.as_view(), name="token_blacklist"),
     path("api/auth/me/", MeView.as_view(), name="me"),
+    # --- REST API + DP gateway ---
+    path("api/", include("api.urls")),
 ]

@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
+    "django_filters",
     "corsheaders",
     # Local apps (accounts first: it owns AUTH_USER_MODEL)
     "accounts",
@@ -43,6 +44,7 @@ INSTALLED_APPS = [
     "budget",
     "audit",
     "safehealth",
+    "api",
 ]
 
 MIDDLEWARE = [
@@ -112,6 +114,7 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
     "DEFAULT_FILTER_BACKENDS": (
+        "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ),
@@ -126,6 +129,9 @@ SIMPLE_JWT = {
 
 # --- CORS (React dev server) ------------------------------------------------
 CORS_ALLOWED_ORIGINS = env("CORS_ALLOWED_ORIGINS")
+
+# --- DP noise: server-side secret for deterministic (memoisable) noise seeds ---
+PRIVGUARD_SERVER_SECRET = env("PRIVGUARD_SERVER_SECRET", default="dev-noise-secret")
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
