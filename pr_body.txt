@@ -1,0 +1,34 @@
+## What & why
+This PR implements all 6 phases of the PrivGuard DB Hardening plan to ensure database integrity, implement a robust two-phase budget protocol, push differential privacy bounds and aggregations down to PostgreSQL, and harden overall infrastructure. This addresses multiple security, performance, and durability gaps.
+
+Closes #
+
+## Type
+- [x] feat
+- [ ] fix
+- [x] refactor
+- [ ] docs
+- [x] chore / infra
+
+## Area
+- [x] backend (Django / DRF / privacy)
+- [x] database (models / migrations / SQL)
+- [ ] frontend (React / UI)
+- [ ] docs / project
+
+## How I tested
+- Ran `python manage.py check`
+- Executed `python manage.py migrate` to apply all 10 new migrations.
+- Ran `python manage.py verify_budgets --strict` which returned successfully.
+- Ran the test suite using `pytest tests/ -v`.
+
+## Checklist
+- [x] Branched from `dev` (not `main`), targeting `dev`.
+- [x] No secrets committed; `.env` is git-ignored.
+- [x] `python manage.py check` passes (backend changes).
+- [x] New migrations included and apply cleanly (schema changes).
+- [x] Meaningful commit messages.
+- [x] For UI: loading + empty + error states covered; light and dark verified; no em-dash in shipped strings.
+
+## Notes for the reviewer (owner)
+The budget protocol now uses the Postgres 11+ core `sha256` function instead of `pgcrypto`'s digest. The `privguard_api` role is implemented in `db/roles.sql`. Please review the new reconciliation management commands.

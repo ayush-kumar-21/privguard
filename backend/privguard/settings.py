@@ -86,6 +86,20 @@ DATABASES = {
     )
 }
 
+# --- Connection pool + session-level guardrails --------------------------------
+DATABASES["default"].update({
+    "CONN_MAX_AGE": env.int("DB_CONN_MAX_AGE", default=60),
+    "CONN_HEALTH_CHECKS": True,
+    "OPTIONS": {
+        "application_name": "privguard-api",
+        "options": "-c statement_timeout=15000 -c lock_timeout=3000 "
+                   "-c idle_in_transaction_session_timeout=30000",
+    },
+})
+# Deliberately NOT set: ATOMIC_REQUESTS. See PrivGuard_DB_Plan.md §1 rule 5 —
+# request-scoped transactions would make the RESERVE phase non-durable and
+# collapse the two-phase budget protocol into one phase.
+
 # --- Custom user model (SYS_PRINCIPAL) --------------------------------------
 AUTH_USER_MODEL = "accounts.Principal"
 
