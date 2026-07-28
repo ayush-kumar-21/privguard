@@ -30,12 +30,17 @@ class SysQueryFingerprint(models.Model):
 
     class Meta:
         db_table = "sys_query_fingerprint"
+        constraints = [
+            models.CheckConstraint(check=models.Q(times_seen__gte=1), name="ck_fingerprint_times_seen_pos"),
+        ]
 
 
 class SysQuery(models.Model):
     STATUS_CHOICES = [
+        ("pending", "pending"),
         ("executed", "executed"),
         ("cache_hit", "cache_hit"),
+        ("error", "error"),
         ("rejected_budget", "rejected_budget"),
         ("rejected_policy", "rejected_policy"),
         ("rejected_correlation", "rejected_correlation"),
@@ -56,7 +61,7 @@ class SysQuery(models.Model):
         related_name="queries",
     )
     sql_text = models.CharField(max_length=4000)
-    plan_json = models.TextField(null=True, blank=True)
+    plan_json = models.JSONField(null=True, blank=True)
     status = models.CharField(max_length=24, choices=STATUS_CHOICES)
     rho_charged = models.FloatField(default=0.0)
     rows_scanned = models.BigIntegerField(null=True, blank=True)
@@ -67,6 +72,9 @@ class SysQuery(models.Model):
         db_table = "sys_query"
         verbose_name_plural = "queries"
         indexes = [models.Index(fields=["principal", "submitted_at"], name="idx_query_principal")]
+        constraints = [
+            models.CheckConstraint(check=models.Q(rho_charged__gte=0), name="ck_query_rho_nonneg"),
+        ]
 
 
 class SysNoiseCache(models.Model):
@@ -81,7 +89,7 @@ class SysNoiseCache(models.Model):
         db_column="principal_id", related_name="noise_cache",
     )
     noise_seed = models.BinaryField(max_length=32, help_text="ChaCha20 seed, derived deterministically")
-    cached_result = models.TextField()
+    cached_result = models.JSONField()
     rho_charged = models.FloatField()
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -120,5 +128,9 @@ class SysPredicateOverlap(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["fp_a", "fp_b", "principal"], name="uq_overlap_pair_principal"
-            )
+            ),
+            models.CheckConstraint(check=models.Q(jaccard_est__gte=0) & models.Q(jaccard_est__lte=1),
+                                   name="ck_overlap_jaccard_unit"),
+            models.CheckConstraint(check=models.Q(symmetric_diff_est__gte=0), name="ck_overlap_symdiff_nonneg"),
+            models.CheckConstraint(check=models.Q(fp_a__lt=models.F("fp_b")), name="ck_overlap_canonical_order"),
         ]

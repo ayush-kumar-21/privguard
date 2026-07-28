@@ -22,8 +22,9 @@ import time
 from collections import defaultdict
 
 from django.conf import settings
-from django.db import connection, transaction
-from django.db.models import Q
+from django.db import connection, transaction, IntegrityError
+from django.db.models import Count, F, Q, Sum, Value, Window
+from django.db.models.functions import Coalesce, DenseRank, Greatest, Least, RowNumber
 
 from audit.models import SysNoiseCache, SysQuery, SysQueryFingerprint
 from budget.models import BudgetAccount
@@ -116,73 +117,85 @@ def mechanics_gaussian(delta2, rho, rng):
 
 
 # --------------------------------------------------------------------------
+# SQL-pushdown: contribution bounding + aggregation in PostgreSQL
+# --------------------------------------------------------------------------
+def _bounded_rows(spec, policy: Policy):
+    """One queryset that applies the L-inf and L0 contribution bounds in SQL.
+
+    Uses Window functions (ROW_NUMBER / DENSE_RANK) so the database does the
+    bounding — Python receives only the survivors, not every row.
+    """
+    qs = Visit.objects.filter(_build_q(spec.filters))
+    partition = [F(PRIVACY_UNIT)]
+    if spec.group_by:
+        qs = qs.annotate(grp_rank=Window(
+            expression=DenseRank(),
+            partition_by=partition,
+            order_by=F(spec.group_by).asc(),
+        )).filter(grp_rank__lte=policy.max_groups)          # L0 bound (G)
+        partition = partition + [F(spec.group_by)]
+    return qs.annotate(rn=Window(
+        expression=RowNumber(),
+        partition_by=partition,
+        order_by=F("visit_id").asc(),
+    )).filter(rn__lte=policy.max_rows)                      # L-inf bound (C)
+
+
+def _true_aggregate(spec, policy: Policy):
+    """Returns the *unnoised* aggregate(s). The only DB round trip.
+
+    All literals are bound parameters (ORM expressions), so the SQLi posture
+    is unchanged — analyst SQL never reaches PostgreSQL as SQL.
+    """
+    rows = _bounded_rows(spec, policy)
+    clamped = Least(Greatest(Coalesce(F(spec.column), Value(0.0)),
+                             Value(float(policy.lo))),
+                    Value(float(policy.hi))) if spec.column else None
+    aggs = {"n": Count("visit_id")}
+    if spec.column:
+        aggs["total"] = Sum(clamped)
+    if spec.group_by:
+        aggs["units"] = Count(PRIVACY_UNIT, distinct=True)
+        return list(rows.values(spec.group_by).annotate(**aggs).order_by(spec.group_by))
+    return rows.aggregate(**aggs)
+
+
+# --------------------------------------------------------------------------
 # Scalar and grouped execution
 # --------------------------------------------------------------------------
 def _execute_scalar(spec, policy: Policy, rho: float, rng: KeyedRandom):
+    """Scalar (non-grouped) DP aggregate using SQL pushdown."""
+    agg = _true_aggregate(spec, policy)
+    true_count = agg["n"]
     C, M = policy.max_rows, policy.clamp_magnitude
-    qs = Visit.objects.filter(_build_q(spec.filters)).order_by("visit_id")
-
-    per_unit_count = defaultdict(int)
-    true_count = 0
-    true_sum = 0.0
-    if spec.column:
-        rows = qs.values_list(PRIVACY_UNIT, spec.column)
-        for unit, val in rows:
-            if per_unit_count[unit] >= C:
-                continue
-            per_unit_count[unit] += 1
-            true_count += 1
-            true_sum += clamp(float(val or 0.0), policy.lo, policy.hi)
-    else:
-        for (unit,) in qs.values_list(PRIVACY_UNIT):
-            if per_unit_count[unit] >= C:
-                continue
-            per_unit_count[unit] += 1
-            true_count += 1
 
     if spec.agg == "COUNT":
-        delta = float(C)
-        value = true_count + _noise(policy.mechanism, rho, delta, delta, rng)
-        return [{"value": round(value, 4)}], delta
+        delta_sens = float(C)
+        value = true_count + _noise(policy.mechanism, rho, delta_sens, delta_sens, rng)
+        return [{"value": round(value, 4)}], delta_sens, true_count
     if spec.agg == "SUM":
-        delta = C * M
-        value = true_sum + _noise(policy.mechanism, rho, delta, delta, rng)
-        return [{"value": round(value, 4)}], delta
+        delta_sens = C * M
+        true_sum = agg.get("total", 0.0) or 0.0
+        value = true_sum + _noise(policy.mechanism, rho, delta_sens, delta_sens, rng)
+        return [{"value": round(value, 4)}], delta_sens, true_count
     # AVG = noisy_sum / max(noisy_count, 1), budget split 50/50
     rho_s, rho_c = rho / 2.0, rho / 2.0
+    true_sum = agg.get("total", 0.0) or 0.0
     noisy_sum = true_sum + _noise(policy.mechanism, rho_s, C * M, C * M, rng)
     noisy_cnt = true_count + _noise(policy.mechanism, rho_c, C, C, rng)
-    return [{"value": round(noisy_sum / max(noisy_cnt, 1.0), 4)}], C * M
+    return [{"value": round(noisy_sum / max(noisy_cnt, 1.0), 4)}], C * M, true_count
 
 
 def _execute_grouped(spec, policy: Policy, rho: float, seed: bytes, delta_partition: float = DELTA_PARTITION):
+    """Grouped DP aggregate using SQL pushdown + DP partition selection."""
     if spec.agg == "AVG":
         raise DPQueryError("AVG with GROUP BY is not supported in this version")
     C, G, M = policy.max_rows, policy.max_groups, policy.clamp_magnitude
-    cols = [PRIVACY_UNIT, spec.group_by] + ([spec.column] if spec.column else [])
-    rows = Visit.objects.filter(_build_q(spec.filters)).order_by("visit_id").values_list(*cols)
 
-    seen_groups = defaultdict(set)
-    rowcount = defaultdict(int)
-    group_true = defaultdict(float)
-    group_units = defaultdict(int)   # distinct privacy units per group (partition signal)
-    for row in rows:
-        unit, g = row[0], row[1]
-        if g not in seen_groups[unit]:
-            if len(seen_groups[unit]) >= G:      # L0 bound
-                continue
-            seen_groups[unit].add(g)
-        key = (unit, g)
-        if rowcount[key] >= C:                   # L-inf bound
-            continue
-        if rowcount[key] == 0:                   # first row for this (unit, group)
-            group_units[g] += 1
-        rowcount[key] += 1
-        group_true[g] += 1 if spec.agg == "COUNT" else clamp(float(row[2] or 0.0), policy.lo, policy.hi)
+    group_rows = _true_aggregate(spec, policy)
+    total_rows_scanned = sum(r["n"] for r in group_rows)
 
     # DP partition selection (spend rho_part), then noise the survivors (rho_agg).
-    # The selection gate counts DISTINCT privacy units per group -> per-group
-    # sensitivity 1 (a unit is present or not), which keeps the threshold small.
     rho_part, rho_agg = rho * 0.2, rho * 0.8
     eps_part = math.sqrt(2.0 * rho_part)
     scale_part = 1.0 / eps_part
@@ -191,18 +204,18 @@ def _execute_grouped(spec, policy: Policy, rho: float, seed: bytes, delta_partit
     part_rng = KeyedRandom(seed + b"partition")
     agg_rng = KeyedRandom(seed + b"aggregate")
     per_sens = M if spec.agg == "SUM" else 1.0
-    delta2 = math.sqrt(G) * C * per_sens   # L2 sensitivity for the Gaussian mechanism
+    delta2 = math.sqrt(G) * C * per_sens
 
-    # Multi-output aggregate -> Gaussian (composes additively in rho under zCDP).
     results, suppressed = [], 0
-    for g in sorted(group_units):
-        noisy_c = group_units[g] + mechanisms.laplace(scale_part, part_rng)
+    for r in group_rows:
+        noisy_c = r["units"] + mechanisms.laplace(scale_part, part_rng)
         if noisy_c <= tau:
             suppressed += 1
             continue
-        noisy_val = group_true[g] + mechanics_gaussian(delta2, rho_agg, agg_rng)
-        results.append({spec.group_by: g, "value": round(noisy_val, 4)})
-    return results, suppressed, delta2
+        true_val = (r.get("total", 0.0) or 0.0) if spec.agg == "SUM" else r["n"]
+        noisy_val = true_val + mechanics_gaussian(delta2, rho_agg, agg_rng)
+        results.append({spec.group_by: r[spec.group_by], "value": round(noisy_val, 4)})
+    return results, suppressed, delta2, total_rows_scanned
 
 
 # --------------------------------------------------------------------------
@@ -218,16 +231,19 @@ def run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAUL
 
     spec = parse(sql)
     ast_hash = spec.ast_hash()
-    fingerprint, _ = SysQueryFingerprint.objects.get_or_create(
-        ast_hash=ast_hash,
-        defaults={
-            "table": SysTable.objects.filter(db=db, table_name=spec.table).first()
-            or _ensure_fact_table(db, spec.table),
-            "agg_kind": spec.agg,
-            "predicate_sig": spec.canonical()[:1024],
-            "groupby_sig": spec.group_by,
-        },
-    )
+    try:
+        fingerprint, _ = SysQueryFingerprint.objects.get_or_create(
+            ast_hash=ast_hash,
+            defaults={
+                "table": SysTable.objects.filter(db=db, table_name=spec.table).first()
+                or _ensure_fact_table(db, spec.table),
+                "agg_kind": spec.agg,
+                "predicate_sig": spec.canonical()[:1024],
+                "groupby_sig": spec.group_by,
+            },
+        )
+    except IntegrityError:
+        fingerprint = SysQueryFingerprint.objects.get(ast_hash=ast_hash)
 
     # --- Memoisation: identical fingerprint + principal -> cached answer, rho=0
     cached = SysNoiseCache.objects.filter(fingerprint=fingerprint, principal=principal).first()
@@ -269,33 +285,44 @@ def run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAUL
 
     try:
         if spec.group_by:
-            results, suppressed, _ = _execute_grouped(spec, policy, rho_req, seed)
+            results, suppressed, _, rows_scanned = _execute_grouped(spec, policy, rho_req, seed)
         else:
             rng = KeyedRandom(seed)
-            results, _ = _execute_scalar(spec, policy, rho_req, rng)
+            results, _, rows_scanned = _execute_scalar(spec, policy, rho_req, rng)
             suppressed = 0
-    except Exception:
+    except DPQueryError:
+        # Policy error: abort and re-raise for the API to map to 400
         _call_status("CALL sp_settle_budget(%s,%s,%s,%s,%s,%s,%s)",
                      [account.account_id, q.query_id, rho_req, False, policy.mechanism, eps_equiv, None])
         q.status = "rejected_policy"
         q.save(update_fields=["status"])
         raise
+    except Exception:
+        # Unexpected error: abort and mark as error
+        _call_status("CALL sp_settle_budget(%s,%s,%s,%s,%s,%s,%s)",
+                     [account.account_id, q.query_id, rho_req, False, policy.mechanism, eps_equiv, None])
+        q.status = "error"
+        q.save(update_fields=["status"])
+        raise
 
-    _call_status("CALL sp_settle_budget(%s,%s,%s,%s,%s,%s,%s)",
-                 [account.account_id, q.query_id, rho_req, True, policy.mechanism, eps_equiv, None])
+    with transaction.atomic():
+        _call_status("CALL sp_settle_budget(%s,%s,%s,%s,%s,%s,%s)",
+                     [account.account_id, q.query_id, rho_req, True, policy.mechanism, eps_equiv, None])
 
-    SysNoiseCache.objects.create(
-        fingerprint=fingerprint, principal=principal, noise_seed=seed,
-        cached_result=json.dumps(results), rho_charged=rho_req,
-    )
-    fingerprint.times_seen = (fingerprint.times_seen or 0) + 1
-    fingerprint.save(update_fields=["times_seen"])
+        SysNoiseCache.objects.create(
+            fingerprint=fingerprint, principal=principal, noise_seed=seed,
+            cached_result=json.dumps(results), rho_charged=rho_req,
+        )
+        # F() makes this an atomic DB increment — fixes the lost-update race
+        # where two concurrent identical queries both read the same times_seen.
+        fingerprint.times_seen = F("times_seen") + 1
+        fingerprint.save(update_fields=["times_seen"])
 
-    q.status = "executed"
-    q.rho_charged = rho_req
-    q.latency_ms = (time.perf_counter() - started) * 1000.0
-    q.rows_scanned = None
-    q.save(update_fields=["status", "rho_charged", "latency_ms"])
+        q.status = "executed"
+        q.rho_charged = rho_req
+        q.latency_ms = (time.perf_counter() - started) * 1000.0
+        q.rows_scanned = rows_scanned
+        q.save(update_fields=["status", "rho_charged", "latency_ms", "rows_scanned"])
 
     account.refresh_from_db()
     resp = _response("executed", results, rho_req, eps_equiv, policy.mechanism, q.query_id, account)
@@ -305,8 +332,12 @@ def run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAUL
 
 
 def _ensure_fact_table(db: SysDatabase, name: str) -> SysTable:
-    """Catalog stub so a fingerprint can be recorded even before the catalog is seeded."""
-    return SysTable.objects.create(db=db, table_name=name, root_page_id=0)
+    """Look up a fact table or raise — catalog seeding belongs in seed_demo/migrations."""
+    table = SysTable.objects.filter(db=db, table_name=name).first()
+    if table:
+        return table
+    raise DPQueryError(f"Table '{name}' not found in catalog for database '{db.db_name}'. "
+                       f"Run seed_demo or add a catalog migration.")
 
 
 def _response(status, result, rho, eps, mechanism, query_id, account) -> dict:

@@ -28,11 +28,19 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
+    entrypoint: |
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py seed_demo --no-input 2>/dev/null || true &&
+             python manage.py refresh_catalog_stats 2>/dev/null || true &&
+             python manage.py runserver 0.0.0.0:8000"
 
   ui:
     build: ./frontend
     depends_on:
-      - api
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
     ports:
       - "8080:80"
 
