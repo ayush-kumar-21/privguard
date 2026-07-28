@@ -19,6 +19,7 @@ from django.db import migrations
 # --------------------------------------------------------------------------
 # 0. Extension
 # --------------------------------------------------------------------------
+# Kept for potential future pgp_sym_encrypt use. We now use PG 11+ core sha256() for hashing.
 PGCRYPTO = "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
 
 # --------------------------------------------------------------------------
@@ -59,6 +60,13 @@ CREATE OR REPLACE FUNCTION privguard_ledger_hash() RETURNS trigger AS $trg$
 DECLARE
     v_prev bytea;
 BEGIN
+    -- Idempotent: if the caller already supplied a real hash (pg_restore path),
+    -- preserve it so the chain survives dump/restore byte-for-byte.
+    IF NEW.entry_hash IS NOT NULL
+       AND NEW.entry_hash <> decode(repeat('00', 32), 'hex') THEN
+        RETURN NEW;
+    END IF;
+
     -- The chain is per budget account, ordered by entry_id.
     SELECT entry_hash INTO v_prev
       FROM sys_budget_ledger
@@ -71,12 +79,12 @@ BEGIN
     END IF;
 
     NEW.prev_hash := v_prev;
-    NEW.entry_hash := digest(
+    NEW.entry_hash := sha256(
         NEW.prev_hash || fn_ledger_payload(
             NEW.entry_id, NEW.account_id, NEW.query_id, NEW.op,
             NEW.rho_delta, NEW.rho_after, NEW.eps_equiv, NEW.mechanism,
-            NEW.sensitivity, NEW.sigma_or_scale, NEW.logged_at),
-        'sha256');
+            NEW.sensitivity, NEW.sigma_or_scale, NEW.logged_at)
+        );
     RETURN NEW;
 END;
 $trg$ LANGUAGE plpgsql;
@@ -250,12 +258,12 @@ BEGIN
          ORDER BY entry_id ASC
     LOOP
         v_count := v_count + 1;
-        v_calc := digest(
+        v_calc := sha256(
             v_prev || fn_ledger_payload(
                 r.entry_id, r.account_id, r.query_id, r.op,
                 r.rho_delta, r.rho_after, r.eps_equiv, r.mechanism,
-                r.sensitivity, r.sigma_or_scale, r.logged_at),
-            'sha256');
+                r.sensitivity, r.sigma_or_scale, r.logged_at)
+            );
         IF r.prev_hash <> v_prev OR r.entry_hash <> v_calc THEN
             v_ok := false;
             v_bad := r.entry_id;

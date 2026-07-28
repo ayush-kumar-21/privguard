@@ -39,7 +39,22 @@ class BudgetAccount(models.Model):
     class Meta:
         db_table = "sys_budget_account"
         constraints = [
-            models.UniqueConstraint(fields=["principal", "db"], name="uq_account_principal_db")
+            models.UniqueConstraint(fields=["principal", "db"], name="uq_account_principal_db"),
+            models.CheckConstraint(check=models.Q(rho_total__gt=0), name="ck_account_rho_total_pos"),
+            models.CheckConstraint(check=models.Q(rho_spent__gte=0), name="ck_account_rho_spent_nonneg"),
+            models.CheckConstraint(check=models.Q(rho_reserved__gte=0), name="ck_account_rho_reserved_nonneg"),
+            models.CheckConstraint(
+                check=models.Q(rho_spent__lte=models.F("rho_total") - models.F("rho_reserved")),
+                name="ck_account_never_oversold",
+            ),
+            models.CheckConstraint(
+                check=models.Q(delta_target__gt=0) & models.Q(delta_target__lt=1),
+                name="ck_account_delta_in_unit_interval",
+            ),
+            models.CheckConstraint(
+                check=~models.Q(window_type="refill") | models.Q(refill_period_s__gt=0),
+                name="ck_account_refill_needs_period",
+            ),
         ]
 
     @property
