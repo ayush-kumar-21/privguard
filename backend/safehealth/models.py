@@ -101,6 +101,12 @@ class Patient(models.Model):
 
     class Meta:
         db_table = "patients"
+        indexes = [
+            # PatientViewSet.search_fields
+            models.Index(fields=["zip3"], name="idx_patients_zip3"),
+            # PatientViewSet.filterset_fields
+            models.Index(fields=["insurance_type"], name="idx_patients_insurance"),
+        ]
         constraints = [
             models.CheckConstraint(
                 check=models.Q(birth_year__gte=1900) & models.Q(birth_year__lte=2100),
@@ -139,6 +145,14 @@ class Visit(models.Model):
         indexes = [
             models.Index(fields=["admit_ts"], name="idx_visits_admit"),
             models.Index(fields=["patient"], name="idx_visits_patient"),
+            # PARTITION BY … ORDER BY for WindowAgg
+            models.Index(fields=["patient", "visit_id"], name="idx_visits_patient_vid"),
+            # GROUPABLE set in privacy/sql.py
+            models.Index(fields=["admission_type"], name="idx_visits_admission_type"),
+            # GROUPABLE + FILTERABLE
+            models.Index(fields=["dept", "admit_ts"], name="idx_visits_dept_admit"),
+            # FILTERABLE + ordering_fields
+            models.Index(fields=["total_charge"], name="idx_visits_charge"),
         ]
         constraints = [
             models.CheckConstraint(
@@ -169,6 +183,12 @@ class Diagnosis(models.Model):
     class Meta:
         db_table = "diagnoses"
         verbose_name_plural = "diagnoses"
+        indexes = [
+            # DiagnosisViewSet.filterset_fields + Attack Lab
+            models.Index(fields=["icd10_code"], name="idx_diag_icd10"),
+            # DiagnosisViewSet.filterset_fields
+            models.Index(fields=["visit", "is_primary"], name="idx_diag_visit_primary"),
+        ]
         constraints = [
             models.CheckConstraint(
                 check=models.Q(severity__isnull=True) | (models.Q(severity__gte=1) & models.Q(severity__lte=5)),
@@ -190,3 +210,8 @@ class LabResult(models.Model):
 
     class Meta:
         db_table = "lab_results"
+        indexes = [
+            # LabResultViewSet.filterset_fields
+            models.Index(fields=["visit", "test_code"], name="idx_lab_visit_test"),
+            models.Index(fields=["taken_at"], name="idx_lab_taken_at"),
+        ]
