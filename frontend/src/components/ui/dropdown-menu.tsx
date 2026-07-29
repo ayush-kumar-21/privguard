@@ -15,7 +15,7 @@ export const DropdownMenuContent = forwardRef<HTMLDivElement, MenuPrimitive.Drop
           sideOffset={sideOffset}
           className={cn(
             'z-50 min-w-[11rem] overflow-hidden rounded-sm border border-border bg-surface p-1',
-            'shadow-lg shadow-black/10 dark:shadow-black/40',
+            'shadow-pop-edge',
             'data-[state=open]:animate-slide-down',
             className,
           )}

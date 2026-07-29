@@ -41,7 +41,7 @@ export function Wordmark({
     <span className={cn('flex items-center gap-2.5', className)}>
       <Mark size={size} />
       {compact ? null : (
-        <span className="font-serif text-[17px] font-medium tracking-tight text-text">
+        <span className="headline text-[16px] tracking-tight text-text">
           PrivGuard
         </span>
       )}

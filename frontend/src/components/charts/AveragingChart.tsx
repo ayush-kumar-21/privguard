@@ -9,7 +9,7 @@ import {
 } from 'recharts'
 
 import { metric } from '../../lib/format'
-import { CHART, ChartLegend, ChartTooltip, TooltipRow } from './chartTheme'
+import { AxisTick, CHART, ChartLegend, ChartTooltip, TooltipRow } from './chartTheme'
 
 export interface AveragingPoint {
   k: number
@@ -38,14 +38,16 @@ export function AveragingChart({
     <div className="grid gap-3">
       <div style={{ height }} className="w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 10, right: 64, bottom: 4, left: -6 }}>
+          {/* The end labels anchor inward, so the plot keeps the width that
+              used to be reserved as empty right margin. */}
+          <LineChart data={data} margin={{ top: 10, right: 12, bottom: 4, left: -6 }}>
             <CartesianGrid stroke={CHART.grid} strokeDasharray="0" vertical={false} />
 
             <XAxis
               dataKey="k"
               type="number"
               domain={[1, 'dataMax']}
-              tick={CHART.tick}
+              tick={<AxisTick />}
               tickLine={false}
               axisLine={{ stroke: CHART.axis }}
               label={{

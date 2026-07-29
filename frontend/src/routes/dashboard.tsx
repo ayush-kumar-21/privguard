@@ -41,7 +41,7 @@ export default function DashboardPage() {
     <div className="grid gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-serif text-display text-text">
+          <h1 className="text-display text-text">
             {principal ? `Welcome back, ${principal.username}` : 'Overview'}
           </h1>
           <p className="mt-1.5 max-w-[62ch] text-body leading-relaxed text-muted">

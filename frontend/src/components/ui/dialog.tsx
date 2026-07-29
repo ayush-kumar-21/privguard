@@ -30,7 +30,7 @@ export const DialogContent = forwardRef<
           ref={ref}
           className={cn(
             'relative my-auto w-full',
-            'rounded-lg border border-border bg-surface shadow-2xl shadow-black/25',
+            'rounded-lg border border-border bg-surface shadow-pop-edge',
             'data-[state=open]:animate-scale-in',
             width,
             className,
@@ -62,7 +62,7 @@ export function DialogHeader({
 }) {
   return (
     <header className="border-b border-border px-5 py-4">
-      <DialogPrimitive.Title className="font-serif text-h3 text-text">
+      <DialogPrimitive.Title className="text-h3 text-text">
         {title}
       </DialogPrimitive.Title>
       {description ? (

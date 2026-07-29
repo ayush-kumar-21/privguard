@@ -102,7 +102,7 @@ export function Tooltip({
           sideOffset={6}
           className={cn(
             'z-50 max-w-xs rounded-sm border border-border bg-surface px-2.5 py-1.5',
-            'text-micro text-text shadow-lg shadow-black/10 dark:shadow-black/40',
+            'text-micro text-text shadow-pop-edge',
             'data-[state=delayed-open]:animate-slide-down',
           )}
         >

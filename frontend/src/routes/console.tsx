@@ -108,7 +108,7 @@ export default function ConsolePage() {
     <div className="grid gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-serif text-display text-text">SQL console</h1>
+          <h1 className="text-display text-text">SQL console</h1>
           <p className="mt-1.5 max-w-[64ch] text-body leading-relaxed text-muted">
             Aggregates over
             <span className="num"> visits</span>. Your SQL is parsed into a validated
