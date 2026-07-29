@@ -1,15 +1,14 @@
 /* ---------------------------------------------------------------------------
    PrivGuard design system
-   Typeface: Anthropic Serif (brand / display / prose) + Geist (UI chrome)
-             + Geist Mono (every number, SQL string and hash).
 
-   Anthropic Serif is a licensed typeface, so it is not vendored here. The stack
-   below picks it up automatically when it is installed locally, or when the
-   licensed webfont files are dropped into `public/fonts/` and
-   `src/styles/anthropic-serif.css` is imported from main.tsx. Until then the
-   self-hosted Source Serif 4 fallback carries the same typographic role.
+   Typeface: Geist for every surface (UI chrome and display), Geist Mono for
+   every number, SQL string and hash. One family, two roles. A display serif
+   was tried here and removed: this is a data instrument, and a serif headline
+   over mono figures reads as two products stapled together.
+
+   Colour: every pair a user actually reads is verified at WCAG AA in both
+   themes. See the token table below; the ratios are in the comments.
 --------------------------------------------------------------------------- */
-@import "@fontsource-variable/source-serif-4";
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/geist-mono";
 
@@ -25,27 +24,29 @@
     the global border rule, and the SVG attributes Recharts writes.
   */
   :root {
-    /* neutrals (light) */
-    --bg-rgb: 250 250 250;
-    --surface-rgb: 255 255 255;
-    --surface-2-rgb: 244 244 245;
+    /* neutrals (light). No pure white: #FDFDFD keeps a panel readable as a
+       raised surface against the page without blowing out under glare. */
+    --bg-rgb: 247 247 248;
+    --surface-rgb: 253 253 253;
+    --surface-2-rgb: 241 241 244;
     --border-rgb: 228 228 231;
     --border-strong-rgb: 212 212 216;
-    --text-rgb: 24 24 27;
-    --text-muted-rgb: 82 82 91;
-    --text-faint-rgb: 161 161 170;
+    --text-rgb: 24 24 27; /* 17.4:1 on surface */
+    --text-muted-rgb: 82 82 91; /* 7.6:1 */
+    --text-faint-rgb: 109 109 118; /* 5.0:1 on surface, 4.5:1 on hover rows */
 
     /* single interactive accent (soft azure) */
-    --accent-rgb: 59 111 224;
-    --accent-hover-rgb: 49 95 196;
-    --accent-press-rgb: 42 84 174;
-    --accent-fg-rgb: 255 255 255;
+    --accent-rgb: 53 99 214; /* 5.3:1 on surface, 4.7:1 on its own tint */
+    --accent-hover-rgb: 44 85 188;
+    --accent-press-rgb: 36 71 159;
+    --accent-fg-rgb: 255 255 255; /* 5.4:1 as a label on the accent fill */
     --accent-weak-rgb: 234 240 254;
 
-    /* semantic: privacy budget + status */
-    --ok-rgb: 30 158 106;
-    --warn-rgb: 180 121 26;
-    --danger-rgb: 214 69 69;
+    /* semantic: privacy budget + status. Darkened from the first pass so a
+       12px chip label clears 4.5:1 against its own tinted background. */
+    --ok-rgb: 18 115 75; /* 5.2:1 on ok-weak */
+    --warn-rgb: 148 100 13; /* 4.6:1 on warn-weak */
+    --danger-rgb: 197 52 52; /* 4.5:1 on danger-weak */
     --ok-weak-rgb: 228 246 238;
     --warn-weak-rgb: 251 240 220;
     --danger-weak-rgb: 251 231 231;
@@ -54,6 +55,14 @@
        dataviz validator (lightness band, chroma floor, CVD separation,
        normal-vision floor, contrast) against their own surface. */
     --series-2-rgb: 235 104 52;
+
+    /* Elevation is tinted to the neutral ramp, never pure black, and stays
+       shallow: one step of depth for panels, one for things that float. */
+    --shadow-panel: 0 1px 2px rgb(24 24 27 / 0.05), 0 1px 1px rgb(24 24 27 / 0.03);
+    --shadow-pop: 0 10px 28px -8px rgb(24 24 27 / 0.14),
+      0 3px 8px -3px rgb(24 24 27 / 0.08);
+    /* Hairline top highlight, the light-mode half of a physical edge. */
+    --edge: inset 0 1px 0 rgb(255 255 255 / 0.7);
 
     color-scheme: light;
   }
@@ -64,14 +73,14 @@
     --surface-2-rgb: 27 27 34;
     --border-rgb: 38 38 46;
     --border-strong-rgb: 52 52 62;
-    --text-rgb: 244 244 246;
-    --text-muted-rgb: 155 155 166;
-    --text-faint-rgb: 110 110 120;
+    --text-rgb: 244 244 246; /* 16.9:1 on surface */
+    --text-muted-rgb: 155 155 166; /* 6.7:1 */
+    --text-faint-rgb: 131 131 140; /* 4.9:1 on surface, 4.6:1 on hover rows */
 
-    --accent-rgb: 91 141 239;
+    --accent-rgb: 91 141 239; /* 5.7:1 on surface */
     --accent-hover-rgb: 110 156 242;
     --accent-press-rgb: 75 123 224;
-    --accent-fg-rgb: 11 11 15;
+    --accent-fg-rgb: 11 11 15; /* 6.1:1 as a label on the accent fill */
     --accent-weak-rgb: 23 35 59;
 
     --ok-rgb: 61 190 139;
@@ -82,6 +91,13 @@
     --danger-weak-rgb: 42 20 20;
 
     --series-2-rgb: 217 89 38;
+
+    /* Dark surfaces read as raised through a lit top edge, not a drop shadow:
+       a shadow on a near-black page is invisible. */
+    --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-pop: 0 12px 32px -10px rgb(0 0 0 / 0.66),
+      0 3px 8px -3px rgb(0 0 0 / 0.5);
+    --edge: inset 0 1px 0 rgb(255 255 255 / 0.045);
 
     color-scheme: dark;
   }
@@ -123,8 +139,6 @@
     --axis: var(--border-strong);
 
     /* typefaces */
-    --font-serif: "Anthropic Serif", "Copernicus", "Source Serif 4 Variable",
-      "Tiempos Text", Georgia, serif;
     --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
     --font-mono: "Geist Mono Variable", ui-monospace, "SFMono-Regular", monospace;
 
@@ -150,14 +164,17 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Brand voice: the serif carries titles, section heads and prose. */
+  /*
+    Display voice. Geist is a grotesque, so headlines need negative tracking
+    and a weight just above the UI text to read as a different register; the
+    size utilities in tailwind.config.js tighten tracking further per step.
+  */
   h1,
   h2,
   h3,
   h4 {
-    font-family: var(--font-serif);
-    font-weight: 500;
-    letter-spacing: -0.01em;
+    font-weight: 560;
+    letter-spacing: -0.018em;
     line-height: 1.2;
     text-wrap: balance;
   }
@@ -169,11 +186,15 @@
     font-family: var(--font-mono);
   }
 
-  /* Accent focus ring on everything focusable, both themes. */
+  /*
+    Accent focus ring on everything focusable, in both themes. The ring must
+    not touch `border-radius`: setting one here would square off the corners of
+    every rounded control the moment it takes focus. `outline` already follows
+    the element's own radius.
+  */
   :focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
-    border-radius: 4px;
   }
 
   ::selection {
@@ -206,8 +227,15 @@
     font-feature-settings: "tnum" 1;
   }
 
-  .serif {
-    font-family: var(--font-serif);
+  /*
+    The display face, for headline-role text that is not an h1-h4 element
+    (an EmptyState title, the wordmark, a dialog heading).
+  */
+  .headline {
+    font-weight: 560;
+    letter-spacing: -0.018em;
+    line-height: 1.2;
+    text-wrap: balance;
   }
 
   /* Uppercase micro label used for stat tiles, table heads and field labels. */

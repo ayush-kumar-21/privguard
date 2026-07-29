@@ -8,9 +8,6 @@ import App from './App'
 import { TooltipProvider } from './components/ui/misc'
 import { useUI } from './stores/ui'
 import './index.css'
-// To self-host the licensed brand serif, drop the files into public/fonts/ and
-// uncomment the next line. See src/styles/anthropic-serif.css.
-// import './styles/anthropic-serif.css'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -28,7 +25,11 @@ function Providers() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={220} skipDelayDuration={300}>
-        <BrowserRouter>
+        {/* Opt in to the v7 behaviours now: state updates batched through
+            startTransition, and splat-relative paths resolved the v7 way. */}
+        <BrowserRouter
+          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        >
           <App />
         </BrowserRouter>
         <Toaster
@@ -38,7 +39,7 @@ function Providers() {
           toastOptions={{
             classNames: {
               toast:
-                'rounded-sm border border-border bg-surface text-text text-small shadow-lg',
+                'rounded-sm border border-border bg-surface text-text text-small shadow-pop-edge',
               description: 'text-muted',
             },
           }}

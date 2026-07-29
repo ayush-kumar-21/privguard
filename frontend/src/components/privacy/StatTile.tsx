@@ -33,13 +33,25 @@ export function StatTile({
   }[tone]
 
   return (
-    <div className={cn('flex min-w-0 flex-col gap-2 bg-surface px-5 py-4', className)}>
+    <div
+      className={cn(
+        'flex min-w-0 flex-col gap-2 bg-surface px-5 py-4',
+        'transition-colors duration-150 hover:bg-surface-2/40',
+        className,
+      )}
+    >
       <span className="label-micro">{label}</span>
       {loading ? (
         <Skeleton className="h-7 w-24" />
       ) : (
         <div className="flex items-baseline gap-1.5">
-          <span className={cn('num text-[26px] font-medium leading-none', toneClass)}>
+          {/* Tightened tracking: mono digits at display size set loose. */}
+          <span
+            className={cn(
+              'num text-[28px] font-medium leading-none tracking-[-0.02em]',
+              toneClass,
+            )}
+          >
             {value}
           </span>
           {unit ? <span className="num text-small text-faint">{unit}</span> : null}
@@ -67,7 +79,7 @@ export function StatRow({
     <div
       className={cn(
         'grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-border bg-border',
-        'sm:grid-cols-2 lg:grid-cols-4',
+        'shadow-panel-edge sm:grid-cols-2 lg:grid-cols-4',
         className,
       )}
     >

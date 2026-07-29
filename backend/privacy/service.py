@@ -252,7 +252,15 @@ def run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAUL
             principal=principal, db=db, fingerprint=fingerprint, sql_text=sql,
             status="cache_hit", rho_charged=0.0, latency_ms=0.0,
         )
-        return _response("cache_hit", json.loads(cached.cached_result), 0.0, 0.0,
+        # `cached_result` became a JSONField in audit.0002, so it now hands back
+        # the decoded rows. Rows written before that migration are still stored
+        # as a JSON string, so decode those rather than orphaning them: a stale
+        # cache entry would otherwise 500 every repeat of that query.
+        cached_rows = cached.cached_result
+        if isinstance(cached_rows, (str, bytes, bytearray)):
+            cached_rows = json.loads(cached_rows)
+
+        return _response("cache_hit", cached_rows, 0.0, 0.0,
                          "cache", q.query_id, account)
 
     policy = _resolve_policy(db, spec)
@@ -311,7 +319,8 @@ def run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAUL
 
         SysNoiseCache.objects.create(
             fingerprint=fingerprint, principal=principal, noise_seed=seed,
-            cached_result=json.dumps(results), rho_charged=rho_req,
+            # JSONField encodes for us; json.dumps here would double-encode.
+            cached_result=results, rho_charged=rho_req,
         )
         # F() makes this an atomic DB increment — fixes the lost-update race
         # where two concurrent identical queries both read the same times_seen.

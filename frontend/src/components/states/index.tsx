@@ -66,7 +66,7 @@ export function EmptyState({
       {IconComponent ? (
         <IconComponent size={22} weight="regular" className="text-faint" aria-hidden />
       ) : null}
-      <p className="font-serif text-h3 text-text">{title}</p>
+      <p className="headline text-h3 text-text">{title}</p>
       {description ? (
         <p className="max-w-[46ch] text-small text-muted">{description}</p>
       ) : null}
@@ -93,7 +93,7 @@ export function ErrorState({
       )}
     >
       <WarningOctagon size={22} weight="regular" className="text-danger" aria-hidden />
-      <p className="font-serif text-h3 text-text">Could not load this view</p>
+      <p className="headline text-h3 text-text">Could not load this view</p>
       <p className="max-w-[52ch] text-small text-muted">{message}</p>
       {onRetry ? (
         <Button size="sm" variant="secondary" onClick={onRetry} className="mt-1">

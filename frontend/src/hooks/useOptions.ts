@@ -1,12 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 
-import api from '../lib/api'
-import type { Paginated } from '../lib/types'
+import { fetchAll } from '../lib/api'
 
 /**
- * Options for a small reference table (regions, departments). Only used where
- * the whole table fits in one page; larger foreign keys are entered by id, so
- * the UI never quietly pages through a fact table to build a dropdown.
+ * Options for a small reference table (regions, departments). Bounded to a few
+ * pages: a dropdown is the wrong control for a fact table, so anything larger
+ * than a reference list is entered by id instead.
  */
 export function useOptions<T extends Record<string, unknown>>({
   endpoint,
@@ -23,8 +22,7 @@ export function useOptions<T extends Record<string, unknown>>({
     queryKey,
     staleTime: 5 * 60_000,
     queryFn: async () => {
-      const { data } = await api.get<Paginated<T> | T[]>(endpoint)
-      const rows = Array.isArray(data) ? data : data.results
+      const rows = await fetchAll<T>(endpoint, { maxPages: 5 })
       return rows.map((row) => ({
         value: String(row[valueKey]),
         label: String(row[labelKey]),
