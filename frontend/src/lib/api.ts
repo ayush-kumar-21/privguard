@@ -4,6 +4,8 @@ import axios, {
   type InternalAxiosRequestConfig,
 } from 'axios'
 
+import type { Paginated } from './types'
+
 /**
  * Axios instance for the PrivGuard API.
  *
@@ -100,15 +102,53 @@ api.interceptors.response.use(
 )
 
 /**
+ * Read a whole DRF collection, following `next` until the last page.
+ *
+ * Screens that render a complete set rather than a page of one (the grant
+ * matrix, the policy editors, role and region pickers) cannot just take
+ * `results` off page 1: DRF pages at 20, so the 21st grant would vanish from
+ * the matrix with nothing on screen to say so. The walk is capped because an
+ * unbounded client-side loop against a fact table is its own bug.
+ */
+export async function fetchAll<T>(
+  endpoint: string,
+  { params, maxPages = 20 }: { params?: Record<string, unknown>; maxPages?: number } = {},
+): Promise<T[]> {
+  const rows: T[] = []
+  for (let page = 1; page <= maxPages; page += 1) {
+    const { data } = await api.get<Paginated<T> | T[]>(endpoint, {
+      params: { ...params, page },
+    })
+    // Pagination can be switched off per-viewset, in which case DRF answers
+    // with a bare array and there is nothing left to walk.
+    if (Array.isArray(data)) return data
+    rows.push(...data.results)
+    if (!data.next) break
+  }
+  return rows
+}
+
+/**
  * Pull a human-readable message out of a DRF error body. The DP gateway
  * answers `{error}`, serializers answer `{field: [msg]}`, SimpleJWT answers
  * `{detail}`.
  */
 export function apiError(error: unknown, fallback = 'Something went wrong.'): string {
   if (!axios.isAxiosError(error)) return fallback
+  const status = error.response?.status
   const data = error.response?.data as Record<string, unknown> | string | undefined
 
-  if (typeof data === 'string') return data.slice(0, 400)
+  if (typeof data === 'string') {
+    // A 500 under DEBUG answers with Django's HTML traceback page, and a
+    // misrouted request can return an SPA index.html. Neither is a message:
+    // dumping the markup into an error banner shows the user page source.
+    if (/^\s*(<!doctype|<html|<\?xml)/i.test(data)) {
+      return status
+        ? `The server failed this request (HTTP ${status}). Check the API logs for the traceback.`
+        : fallback
+    }
+    return data.slice(0, 400)
+  }
   if (data && typeof data === 'object') {
     for (const key of ['error', 'detail', 'non_field_errors']) {
       const value = data[key]

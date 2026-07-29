@@ -29,7 +29,7 @@ function BootSplash() {
     <div className="grid min-h-dvh place-items-center bg-bg">
       <div className="flex items-center gap-3 text-muted">
         <Mark size={18} />
-        <span className="font-serif text-h3">PrivGuard</span>
+        <span className="headline text-h3">PrivGuard</span>
       </div>
     </div>
   )

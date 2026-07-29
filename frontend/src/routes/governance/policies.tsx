@@ -9,14 +9,9 @@ import { Input } from '../../components/ui/input'
 import { Tooltip } from '../../components/ui/misc'
 import { PageHeader, Panel, PanelHeader } from '../../components/ui/panel'
 import { Select } from '../../components/ui/select'
-import api, { apiError } from '../../lib/api'
+import api, { apiError, fetchAll } from '../../lib/api'
 import { qk } from '../../lib/queryKeys'
-import type {
-  ColumnPrivacy,
-  Mechanism,
-  Paginated,
-  TablePrivacy,
-} from '../../lib/types'
+import type { ColumnPrivacy, Mechanism, TablePrivacy } from '../../lib/types'
 
 const MECHANISMS: { value: Mechanism; label: string }[] = [
   { value: 'laplace', label: 'laplace' },
@@ -24,10 +19,6 @@ const MECHANISMS: { value: Mechanism; label: string }[] = [
   { value: 'discrete_laplace', label: 'discrete laplace' },
   { value: 'none', label: 'none' },
 ]
-
-function unwrap<T>(data: Paginated<T> | T[]): T[] {
-  return Array.isArray(data) ? data : data.results
-}
 
 /** Small labelled control used across both policy editors. */
 function Cell({
@@ -285,22 +276,12 @@ function TablePolicyRow({ policy }: { policy: TablePrivacy }) {
 export default function PoliciesPage() {
   const columnPolicies = useQuery({
     queryKey: qk.columnPolicies(),
-    queryFn: async () => {
-      const { data } = await api.get<Paginated<ColumnPrivacy> | ColumnPrivacy[]>(
-        '/column-policies/',
-      )
-      return unwrap(data)
-    },
+    queryFn: () => fetchAll<ColumnPrivacy>('/column-policies/'),
   })
 
   const tablePolicies = useQuery({
     queryKey: qk.tablePolicies(),
-    queryFn: async () => {
-      const { data } = await api.get<Paginated<TablePrivacy> | TablePrivacy[]>(
-        '/table-policies/',
-      )
-      return unwrap(data)
-    },
+    queryFn: () => fetchAll<TablePrivacy>('/table-policies/'),
   })
 
   return (

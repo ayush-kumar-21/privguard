@@ -42,18 +42,28 @@ export default {
         lg: 'var(--radius-lg)',
       },
       fontFamily: {
-        serif: 'var(--font-serif)',
         sans: 'var(--font-sans)',
         mono: 'var(--font-mono)',
       },
       fontSize: {
+        // Tracking tightens as the step grows: a grotesque set at display size
+        // needs the counters pulled in or it reads loose next to mono figures.
         micro: ['12px', { lineHeight: '16px' }],
         small: ['13px', { lineHeight: '18px' }],
         body: ['14px', { lineHeight: '22px' }],
-        h3: ['16px', { lineHeight: '22px', letterSpacing: '-0.01em' }],
-        h2: ['20px', { lineHeight: '26px', letterSpacing: '-0.015em' }],
-        display: ['30px', { lineHeight: '36px', letterSpacing: '-0.02em' }],
-        hero: ['38px', { lineHeight: '44px', letterSpacing: '-0.025em' }],
+        h3: ['16px', { lineHeight: '22px', letterSpacing: '-0.014em' }],
+        h2: ['20px', { lineHeight: '26px', letterSpacing: '-0.018em' }],
+        display: ['30px', { lineHeight: '36px', letterSpacing: '-0.024em' }],
+        hero: ['40px', { lineHeight: '46px', letterSpacing: '-0.03em' }],
+      },
+      boxShadow: {
+        // One step of depth for a resting panel, one for anything that floats
+        // above the page. Both tinted to the neutral ramp, never pure black.
+        panel: 'var(--shadow-panel)',
+        pop: 'var(--shadow-pop)',
+        edge: 'var(--edge)',
+        'panel-edge': 'var(--edge), var(--shadow-panel)',
+        'pop-edge': 'var(--edge), var(--shadow-pop)',
       },
       maxWidth: {
         page: '1400px',

@@ -9,9 +9,9 @@ import { Panel, PageHeader, PanelHeader } from '../../components/ui/panel'
 import { Select } from '../../components/ui/select'
 import { Table, TBody, TD, TH, THead, TR, TableScroll } from '../../components/ui/table'
 import { Tooltip } from '../../components/ui/misc'
-import api, { apiError } from '../../lib/api'
+import api, { apiError, fetchAll } from '../../lib/api'
 import { qk } from '../../lib/queryKeys'
-import type { AccessMode, ColumnGrant, Paginated, Role } from '../../lib/types'
+import type { AccessMode, ColumnGrant, Role } from '../../lib/types'
 
 const ACCESS_MODES: { value: AccessMode; label: string }[] = [
   { value: 'raw', label: 'raw' },
@@ -27,29 +27,19 @@ const MODE_TONE: Record<AccessMode, 'ok' | 'accent' | 'warn' | 'danger'> = {
   denied: 'danger',
 }
 
-function unwrap<T>(data: Paginated<T> | T[]): T[] {
-  return Array.isArray(data) ? data : data.results
-}
-
 export default function GrantsPage() {
   const queryClient = useQueryClient()
 
   const roles = useQuery({
     queryKey: qk.roles(),
-    queryFn: async () => {
-      const { data } = await api.get<Paginated<Role> | Role[]>('/roles/')
-      return unwrap(data)
-    },
+    queryFn: () => fetchAll<Role>('/roles/'),
   })
 
+  // The matrix is only honest if it holds every grant, so this walks the
+  // pages rather than rendering whatever fits on the first one.
   const grants = useQuery({
     queryKey: qk.columnGrants(),
-    queryFn: async () => {
-      const { data } = await api.get<Paginated<ColumnGrant> | ColumnGrant[]>(
-        '/column-grants/',
-      )
-      return unwrap(data)
-    },
+    queryFn: () => fetchAll<ColumnGrant>('/column-grants/'),
   })
 
   /** column id -> role id -> grant, so the grid can be rendered as a matrix. */
@@ -200,7 +190,7 @@ export default function GrantsPage() {
       </Panel>
 
       <Panel>
-        <h2 className="font-serif text-h3">What the modes mean</h2>
+        <h2 className="text-h3">What the modes mean</h2>
         <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
             ['raw', 'The exact stored value. No noise, no budget charge.'],
