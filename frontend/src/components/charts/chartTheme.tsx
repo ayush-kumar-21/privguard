@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Text } from 'recharts'
 
 import { cn } from '../../lib/cn'
 
@@ -20,6 +21,42 @@ export const CHART = {
   tick: { fill: 'var(--text-faint)', fontSize: 11, fontFamily: 'var(--font-mono)' },
 } as const
 
+/** What Recharts hands a custom tick element. */
+interface TickProps {
+  payload?: { value: number | string }
+  index?: number
+  visibleTicksCount?: number
+  tickFormatter?: (value: never, index: number) => string
+  [key: string]: unknown
+}
+
+/**
+ * X-axis tick that anchors its first and last labels inward.
+ *
+ * Recharts centres every tick label on its tick. At the ends of the axis that
+ * puts half the label outside the plot, so the final timestamp renders clipped
+ * ("17 Jul, 02:0"). Anchoring the first label to `start` and the last to `end`
+ * keeps both whole without reserving dead margin on either side.
+ */
+export function AxisTick({
+  payload,
+  index = 0,
+  visibleTicksCount = 0,
+  tickFormatter,
+  ...rest
+}: TickProps) {
+  const raw = payload?.value
+  const label = tickFormatter ? tickFormatter(raw as never, index) : String(raw ?? '')
+  const anchor =
+    index === 0 ? 'start' : index === visibleTicksCount - 1 ? 'end' : 'middle'
+
+  return (
+    <Text {...rest} textAnchor={anchor} {...CHART.tick}>
+      {label}
+    </Text>
+  )
+}
+
 /** Tooltip shell, so every chart in the app speaks with the same voice. */
 export function ChartTooltip({
   title,
@@ -29,7 +66,7 @@ export function ChartTooltip({
   children: ReactNode
 }) {
   return (
-    <div className="min-w-[9rem] rounded-sm border border-border bg-surface px-3 py-2 shadow-lg shadow-black/10 dark:shadow-black/40">
+    <div className="min-w-[9rem] rounded-sm border border-border bg-surface px-3 py-2 shadow-pop-edge">
       <p className="num text-micro text-faint">{title}</p>
       <dl className="mt-1.5 grid gap-1">{children}</dl>
     </div>

@@ -19,7 +19,10 @@ export function Panel({
   return (
     <section
       className={cn(
-        'rounded-lg border border-border bg-surface',
+        // One step of depth, no more. Each theme weights the two halves of the
+        // token differently: on light the drop shadow does the work, on dark
+        // (where a shadow is invisible) it is the lit top edge.
+        'rounded-lg border border-border bg-surface shadow-panel-edge',
         inset ? '' : 'p-5',
         className,
       )}
@@ -48,7 +51,7 @@ export function PanelHeader({
       )}
     >
       <div className="min-w-0">
-        <h2 className="font-serif text-h3 text-text">{title}</h2>
+        <h2 className="text-h3 text-text">{title}</h2>
         {description ? (
           <p className="mt-0.5 text-micro text-muted">{description}</p>
         ) : null}
@@ -71,7 +74,7 @@ export function PageHeader({
   return (
     <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div className="min-w-0">
-        <h1 className="font-serif text-display text-text">{title}</h1>
+        <h1 className="text-display text-text">{title}</h1>
         {description ? (
           <p className="mt-1.5 max-w-[62ch] text-body leading-relaxed text-muted">
             {description}

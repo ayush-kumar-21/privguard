@@ -42,7 +42,7 @@ export const SelectContent = forwardRef<HTMLDivElement, SelectPrimitive.SelectCo
           sideOffset={4}
           className={cn(
             'z-50 min-w-[9rem] overflow-hidden rounded-sm border border-border bg-surface',
-            'shadow-lg shadow-black/10 dark:shadow-black/40',
+            'shadow-pop-edge',
             'data-[state=open]:animate-slide-down',
             position === 'popper' && 'max-h-72 w-[var(--radix-select-trigger-width)]',
             className,

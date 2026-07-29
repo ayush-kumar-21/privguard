@@ -13,23 +13,18 @@ import { Button } from '../../components/ui/button'
 import { PageHeader, Panel, PanelHeader } from '../../components/ui/panel'
 import { Table, TBody, TD, TH, THead, TR, TableScroll } from '../../components/ui/table'
 import { useLedgerVerify } from '../../hooks/useBudget'
-import api, { apiError } from '../../lib/api'
+import { apiError, fetchAll } from '../../lib/api'
 import { epsFromRho } from '../../lib/accounting'
 import { budgetBand, eps, int, rho } from '../../lib/format'
 import { qk } from '../../lib/queryKeys'
-import type { BudgetAccount, Paginated } from '../../lib/types'
+import type { BudgetAccount } from '../../lib/types'
 
 export default function LedgerPage() {
   const verify = useLedgerVerify()
 
   const accounts = useQuery({
     queryKey: qk.budgetAccounts(),
-    queryFn: async () => {
-      const { data } = await api.get<Paginated<BudgetAccount> | BudgetAccount[]>(
-        '/budget-accounts/',
-      )
-      return Array.isArray(data) ? data : data.results
-    },
+    queryFn: () => fetchAll<BudgetAccount>('/budget-accounts/'),
   })
 
   const ok = verify.data?.ok
@@ -77,7 +72,7 @@ export default function LedgerPage() {
             )}
 
             <div className="min-w-0">
-              <h2 className="font-serif text-h3 text-text">
+              <h2 className="text-h3 text-text">
                 {verify.isPending
                   ? 'Verifying chain'
                   : !hasLedger
