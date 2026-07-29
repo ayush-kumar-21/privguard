@@ -1,6 +1,6 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { X } from '@phosphor-icons/react'
-import { Suspense } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 
 import { Skeleton } from '../states'
@@ -62,8 +62,35 @@ function RouteFallback() {
   )
 }
 
+/**
+ * True once the page has scrolled past the top, so the topbar can earn its
+ * separating edge instead of always wearing one.
+ *
+ * Watches a 1px sentinel with IntersectionObserver rather than listening to
+ * scroll: no work on the main thread per frame, and no React state churn while
+ * the user is mid-scroll.
+ */
+function useScrolledPast() {
+  const sentinel = useRef<HTMLDivElement>(null)
+  const [past, setPast] = useState(false)
+
+  useEffect(() => {
+    const node = sentinel.current
+    if (!node) return
+    const observer = new IntersectionObserver(
+      ([entry]) => setPast(!entry.isIntersecting),
+      { threshold: 1 },
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
+  return { sentinel, past }
+}
+
 export function AppShell() {
   const { pathname } = useLocation()
+  const { sentinel, past } = useScrolledPast()
 
   return (
     <div className="flex min-h-dvh bg-bg">
@@ -71,7 +98,8 @@ export function AppShell() {
       <NavDrawer />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar title={sectionTitle(pathname)} />
+        <div ref={sentinel} aria-hidden className="h-px shrink-0" />
+        <Topbar title={sectionTitle(pathname)} elevated={past} />
         <main className="flex-1">
           {/* key on pathname so each route mounts with its own fade+rise */}
           <div

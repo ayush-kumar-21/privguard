@@ -14,7 +14,7 @@ import {
 import { epsFromRho } from '../../lib/accounting'
 import { dateTime, eps as fmtEps, rho as fmtRho } from '../../lib/format'
 import type { QueryAudit } from '../../lib/types'
-import { CHART, ChartTooltip, TooltipRow } from './chartTheme'
+import { AxisTick, CHART, ChartTooltip, TooltipRow } from './chartTheme'
 
 interface Point {
   t: number
@@ -22,6 +22,8 @@ interface Point {
   charged: number
   label: string
 }
+
+const NICE_MANTISSAS = [1, 2, 2.5, 5]
 
 /** Round a raw step up to 1, 2, 2.5 or 5 times a power of ten. */
 function niceStep(raw: number): number {
@@ -32,15 +34,69 @@ function niceStep(raw: number): number {
   return step * magnitude
 }
 
-/** Axis ticks on round numbers, always including the exhaustion ceiling. */
+/**
+ * The largest round step that divides the ceiling exactly.
+ *
+ * The exhaustion line is the one value on this axis a reader has to locate, so
+ * it has to sit on a gridline. Picking the step from the data instead produced
+ * a 0 / 2 / 4 / 5 axis, where the last interval is half the others and the
+ * ceiling reads as an afterthought. Returns null when no round step fits.
+ */
+function stepDividing(ceiling: number): number | null {
+  if (!(ceiling > 0)) return null
+  for (const divisions of [5, 4, 6, 3, 8, 2]) {
+    const step = ceiling / divisions
+    const magnitude = 10 ** Math.floor(Math.log10(step))
+    const mantissa = Number((step / magnitude).toFixed(6))
+    if (NICE_MANTISSAS.includes(mantissa)) return step
+  }
+  return null
+}
+
+/** Evenly spaced ticks on round numbers, with the ceiling always on the grid. */
 function axisTicks(max: number, ceiling: number): number[] {
-  const step = niceStep(max / 4)
+  const step = stepDividing(ceiling) ?? niceStep(max / 4)
   const ticks: number[] = []
   for (let value = 0; value <= max + 1e-9; value += step) {
     ticks.push(Number(value.toFixed(6)))
   }
-  if (!ticks.some((tick) => Math.abs(tick - ceiling) < step / 8)) ticks.push(ceiling)
-  return ticks.sort((a, b) => a - b)
+  // Only reachable when the ceiling itself is not a round multiple of the step.
+  if (!ticks.some((tick) => Math.abs(tick - ceiling) < step / 8)) {
+    ticks.push(ceiling)
+    ticks.sort((a, b) => a - b)
+  }
+  return ticks
+}
+
+/**
+ * The caption for the exhaustion rule, positioned by hand.
+ *
+ * Recharts' object-form label derives its own vertical anchor and drops the
+ * `dy` passed alongside it, so the caption rendered struck through by the very
+ * line it names. Reading the line's viewBox instead puts the text in the
+ * exhaustion band above the rule, right-aligned and clear of the plot edge.
+ * Recharts clones this element with `viewBox` supplied.
+ */
+function CeilingCaption({
+  viewBox,
+  children,
+}: {
+  viewBox?: { x: number; y: number; width: number }
+  children: string
+}) {
+  if (!viewBox) return null
+  return (
+    <text
+      x={viewBox.x + viewBox.width - 6}
+      y={viewBox.y - 7}
+      textAnchor="end"
+      fill="var(--text-faint)"
+      fontSize={11}
+      fontFamily="var(--font-mono)"
+    >
+      {children}
+    </text>
+  )
 }
 
 /**
@@ -123,14 +179,9 @@ export function BudgetBurndown({
             y={rhoTotal}
             stroke={CHART.danger}
             strokeWidth={1}
-            label={{
-              value: `exhausted at rho ${fmtRho(rhoTotal, 2)}`,
-              position: 'insideTopRight',
-              fill: 'var(--text-faint)',
-              fontSize: 11,
-              fontFamily: 'var(--font-mono)',
-              dy: -4,
-            }}
+            label={
+              <CeilingCaption>{`exhausted at rho ${fmtRho(rhoTotal, 2)}`}</CeilingCaption>
+            }
           />
 
           <XAxis
@@ -139,7 +190,7 @@ export function BudgetBurndown({
             domain={['dataMin', 'dataMax']}
             scale="time"
             tickFormatter={(value: number) => dateTime(new Date(value).toISOString())}
-            tick={CHART.tick}
+            tick={<AxisTick />}
             tickLine={false}
             axisLine={{ stroke: CHART.axis }}
             minTickGap={44}

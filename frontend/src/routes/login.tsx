@@ -55,37 +55,51 @@ export default function LoginPage() {
       <aside className="relative hidden overflow-hidden border-r border-border bg-surface lg:flex lg:flex-col">
         <div className="grid-motif pointer-events-none absolute inset-0 opacity-60" aria-hidden />
 
-        <div className="relative flex flex-1 flex-col justify-between p-12">
+        {/* One centred rail: the wordmark and the statement share a left edge,
+            and the whole group sits in the middle of the panel instead of
+            hugging its left border with half a screen of dead space beside. */}
+        <div className="relative mx-auto flex w-full max-w-[34rem] flex-1 flex-col px-6 py-12">
           <div className="flex items-center gap-3">
             <Mark size={20} />
-            <span className="font-serif text-h3 font-medium tracking-tight">PrivGuard</span>
+            <span className="headline text-h3 tracking-tight">PrivGuard</span>
           </div>
 
-          <div className="max-w-[26ch]">
-            <h1 className="font-serif text-hero text-text">
-              Differentially private query gateway.
-            </h1>
-            <p className="mt-5 max-w-[42ch] text-body leading-relaxed text-muted">
-              Analysts ask questions of SafeHealth. PrivGuard answers with
-              calibrated noise, charges a zCDP budget, and writes the cost to a
-              hash-chained ledger.
-            </p>
-          </div>
+          {/*
+            Headline, claim and proof read as one block rather than three
+            things pushed to the corners of the panel. `justify-between` left a
+            dead band across the middle at tall viewports; centring the group
+            and capping its measure keeps the composition together at any
+            height. The cap is in `em` so it resolves against the headline's own
+            size: `ch` here would be measured at the parent's 14px and wrap the
+            40px display type to three ragged lines.
+          */}
+          <div className="flex flex-1 flex-col justify-center py-14">
+            <div>
+              <h1 className="max-w-[12em] text-hero text-text">
+                Differentially private query gateway.
+              </h1>
+              <p className="mt-5 max-w-[46ch] text-body leading-relaxed text-muted">
+                Analysts ask questions of SafeHealth. PrivGuard answers with
+                calibrated noise, charges a zCDP budget, and writes the cost to a
+                hash-chained ledger.
+              </p>
 
-          <dl className="grid max-w-md grid-cols-3 gap-px overflow-hidden rounded-lg border border-border bg-border">
-            {[
-              { term: 'accounting', value: 'zCDP' },
-              { term: 'mechanisms', value: '3' },
-              { term: 'ledger', value: 'hash-chained' },
-            ].map((item) => (
-              <div key={item.term} className="bg-surface px-4 py-3">
-                <dt className="label-micro">{item.term}</dt>
-                <dd className="mt-1 truncate font-mono text-small text-text">
-                  {item.value}
-                </dd>
-              </div>
-            ))}
-          </dl>
+              <dl className="mt-10 grid grid-cols-3 gap-px overflow-hidden rounded-lg border border-border bg-border shadow-panel-edge">
+                {[
+                  { term: 'accounting', value: 'zCDP' },
+                  { term: 'mechanisms', value: '3' },
+                  { term: 'ledger', value: 'hash-chained' },
+                ].map((item) => (
+                  <div key={item.term} className="bg-surface px-4 py-3">
+                    <dt className="label-micro">{item.term}</dt>
+                    <dd className="mt-1 truncate font-mono text-small text-text">
+                      {item.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          </div>
         </div>
       </aside>
 
@@ -94,14 +108,14 @@ export default function LoginPage() {
         <div className="flex h-16 items-center justify-between px-6 lg:justify-end">
           <div className="flex items-center gap-2.5 lg:hidden">
             <Mark size={18} />
-            <span className="font-serif text-h3 font-medium">PrivGuard</span>
+            <span className="headline text-h3">PrivGuard</span>
           </div>
           <ThemeToggle />
         </div>
 
         <div className="flex flex-1 items-center justify-center px-6 pb-16">
           <div className="w-full max-w-[360px] animate-fade-rise">
-            <h2 className="font-serif text-display text-text">Sign in</h2>
+            <h2 className="text-display text-text">Sign in</h2>
             <p className="mt-1.5 text-small text-muted">
               Your role decides which surfaces and columns you can reach.
             </p>

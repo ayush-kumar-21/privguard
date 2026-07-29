@@ -1,6 +1,7 @@
 import { CaretDown, List, SignOut, User } from '@phosphor-icons/react'
 import { useNavigate } from 'react-router-dom'
 
+import { cn } from '../../lib/cn'
 import { useBudget } from '../../hooks/useBudget'
 import { useAuth } from '../../stores/auth'
 import { useUI } from '../../stores/ui'
@@ -25,7 +26,7 @@ const ROLE_LABEL: Record<string, string> = {
   dba: 'dba',
 }
 
-export function Topbar({ title }: { title: string }) {
+export function Topbar({ title, elevated = false }: { title: string; elevated?: boolean }) {
   const principal = useAuth((state) => state.principal)
   const logout = useAuth((state) => state.logout)
   const setDrawer = useUI((state) => state.setDrawer)
@@ -38,7 +39,15 @@ export function Topbar({ title }: { title: string }) {
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-border bg-bg/85 px-4 backdrop-blur-md sm:px-6">
+    <header
+      className={cn(
+        'sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 px-4 sm:px-6',
+        'border-b bg-bg/85 backdrop-blur-md transition-colors duration-200 ease-out',
+        // At the top of the page there is nothing to separate the bar from, so
+        // the rule only appears once content has slid underneath it.
+        elevated ? 'border-border' : 'border-transparent',
+      )}
+    >
       <button
         type="button"
         onClick={() => setDrawer(true)}
@@ -48,7 +57,7 @@ export function Topbar({ title }: { title: string }) {
         <List size={16} aria-hidden />
       </button>
 
-      <h1 className="min-w-0 truncate font-serif text-h3 font-medium text-text">{title}</h1>
+      <h1 className="min-w-0 truncate text-h3 text-text">{title}</h1>
 
       <div className="ml-auto flex items-center gap-2 sm:gap-3">
         {isPending ? (
