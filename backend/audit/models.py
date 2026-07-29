@@ -30,6 +30,10 @@ class SysQueryFingerprint(models.Model):
 
     class Meta:
         db_table = "sys_query_fingerprint"
+        indexes = [
+            # fingerprint analytics
+            models.Index(fields=["table", "agg_kind"], name="idx_fp_table_agg"),
+        ]
         constraints = [
             models.CheckConstraint(check=models.Q(times_seen__gte=1), name="ck_fingerprint_times_seen_pos"),
         ]
@@ -71,7 +75,11 @@ class SysQuery(models.Model):
     class Meta:
         db_table = "sys_query"
         verbose_name_plural = "queries"
-        indexes = [models.Index(fields=["principal", "submitted_at"], name="idx_query_principal")]
+        indexes = [
+            models.Index(fields=["principal", "submitted_at"], name="idx_query_principal"),
+            # QueryAuditViewSet filter+order
+            models.Index(fields=["status", "-submitted_at"], name="idx_query_status_submitted"),
+        ]
         constraints = [
             models.CheckConstraint(check=models.Q(rho_charged__gte=0), name="ck_query_rho_nonneg"),
         ]

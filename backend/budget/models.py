@@ -91,4 +91,10 @@ class BudgetLedger(models.Model):
 
     class Meta:
         db_table = "sys_budget_ledger"
-        indexes = [models.Index(fields=["account", "entry_id"], name="idx_ledger_account")]
+        indexes = [
+            models.Index(fields=["account", "entry_id"], name="idx_ledger_account"),
+            # fn_reconcile_account's NOT EXISTS
+            models.Index(fields=["query"], name="idx_ledger_query_id"),
+            # burn-down chart time-range scans
+            models.Index(fields=["logged_at"], name="idx_ledger_logged_at"),
+        ]
