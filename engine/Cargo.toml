@@ -1,0 +1,42 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/privguard-core",
+    "crates/privguard-storage",
+    "crates/privguard-catalog",
+    "crates/privguard-sql",
+    "crates/privguard-plan",
+    "crates/privguard-privacy",
+    "crates/privguard-crypto",
+    "crates/privguard-wire",
+    "crates/privguardd",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+repository = "https://github.com/sugeshkumar11/privguard"
+
+# Internal crates are referenced by path so the workspace builds standalone.
+# External dependencies are added per-phase, as they are actually used, rather
+# than up front: the foundation phase compiles with no network access at all.
+[workspace.dependencies]
+privguard-core = { path = "crates/privguard-core" }
+privguard-storage = { path = "crates/privguard-storage" }
+privguard-catalog = { path = "crates/privguard-catalog" }
+privguard-sql = { path = "crates/privguard-sql" }
+privguard-plan = { path = "crates/privguard-plan" }
+privguard-privacy = { path = "crates/privguard-privacy" }
+privguard-crypto = { path = "crates/privguard-crypto" }
+privguard-wire = { path = "crates/privguard-wire" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# Benchmarks compare DP overhead against the non-private baseline (Phase 5.1),
+# which is meaningless with debug assertions on the hot path.
+[profile.bench]
+debug = true

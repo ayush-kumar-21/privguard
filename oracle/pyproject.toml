@@ -1,0 +1,26 @@
+[project]
+name = "privguard-oracle"
+version = "0.1.0"
+description = "Reference differential-privacy implementation used to validate the Rust engine."
+requires-python = ">=3.11"
+
+# The core oracle is stdlib-only on purpose. It is the thing the engine is
+# checked against, so it must be trivially runnable anywhere, and every
+# dependency is another way for the reference to disagree with itself between
+# machines. NumPy/SciPy appear only in the evaluation extra (Phase 5).
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+eval = ["numpy>=1.26", "scipy>=1.13"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["privguard_oracle*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

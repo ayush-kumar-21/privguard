@@ -1,7 +1,9 @@
 @echo off
 rem PrivGuard: one command to bring the whole project up.
 rem
-rem   run.bat            start db + api + ui, wait until healthy, print URLs
+rem  App stack (Docker)
+rem   run.bat            build (with retries) then start db + api + ui, print URLs
+rem   run.bat build      build the images only, do not start anything
 rem   run.bat dev        start db + api, then the Vite dev server with hot reload
 rem   run.bat stop       stop the containers, keep the database
 rem   run.bat restart    stop then start
@@ -9,6 +11,12 @@ rem   run.bat rebuild    rebuild the images from scratch and start
 rem   run.bat logs [svc] follow logs, optionally for one service
 rem   run.bat status     show what is running and on which ports
 rem   run.bat reset      DESTROY the database volume and start clean
+rem
+rem  Blueprint build (see IMPLEMENTATION_PLAN.md)
+rem   run.bat engine     build and test the Rust engine in Docker
+rem   run.bat oracle     run the Python DP oracle test suite
+rem   run.bat data       regenerate the SafeHealth dataset
+rem   run.bat check      oracle + engine; everything that needs no container
 
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
@@ -20,10 +28,19 @@ if /i "%CMD%"=="help"   goto :help
 if /i "%CMD%"=="-h"     goto :help
 if /i "%CMD%"=="--help" goto :help
 
+rem The oracle and the dataset generator are plain Python via uv -- no Docker,
+rem so dispatch them before the daemon check rather than making someone start
+rem Docker Desktop to run a unit test.
+if /i "%CMD%"=="oracle"  goto :oracle
+if /i "%CMD%"=="data"    goto :data
+
 call :require_docker || exit /b 1
 
 if /i "%CMD%"=="up"      goto :up
 if /i "%CMD%"=="start"   goto :up
+if /i "%CMD%"=="build"   goto :build
+if /i "%CMD%"=="engine"  goto :engine
+if /i "%CMD%"=="check"   goto :check
 if /i "%CMD%"=="dev"     goto :dev
 if /i "%CMD%"=="stop"    goto :stop
 if /i "%CMD%"=="down"    goto :stop
@@ -38,7 +55,10 @@ exit /b 1
 
 rem ---------------------------------------------------------------- commands
 :up
-echo Building and starting containers...
+echo Building images. The first run pulls base images and installs npm/pip
+echo packages, so it can take a few minutes.
+call :build_with_retry "" || exit /b 1
+echo Starting containers...
 docker compose up -d %2 %3 %4 || exit /b 1
 call :api_port
 if "!API_PORT!"=="" (
@@ -60,7 +80,63 @@ call :sync_env !API_PORT!
 call :print_urls
 exit /b 0
 
+:build
+echo Building images...
+call :build_with_retry "" || exit /b 1
+echo Done. Run "run.bat" to start the containers.
+exit /b 0
+
+rem ------------------------------------------------- engine, oracle, dataset
+rem The Rust engine builds and tests inside Docker: no host toolchain needed,
+rem and the pinned base image means a build here matches CI.
+:engine
+echo Building the Rust engine...
+docker build -t privguard-engine engine || exit /b 1
+echo.
+echo Running the engine test suite...
+docker run --rm privguard-engine || exit /b 1
+exit /b 0
+
+rem The oracle is the Python reference implementation the engine is validated
+rem against. uv builds a throwaway venv, so there is nothing to install first.
+:oracle
+call :require_uv || exit /b 1
+echo Running the DP oracle test suite...
+pushd oracle
+uv run --with pytest --python 3.12 pytest %2 %3 %4
+set "RC=!errorlevel!"
+popd
+exit /b !RC!
+
+:data
+call :require_uv || exit /b 1
+echo Regenerating the SafeHealth dataset...
+pushd oracle
+uv run --python 3.12 python -m privguard_oracle.dataset --out ../data/safehealth
+set "RC=!errorlevel!"
+popd
+exit /b !RC!
+
+rem Everything that can fail without starting a container.
+:check
+call :require_uv || exit /b 1
+echo === DP oracle ===
+pushd oracle
+uv run --with pytest --python 3.12 pytest
+set "RC=!errorlevel!"
+popd
+if not "!RC!"=="0" exit /b !RC!
+echo.
+echo === Rust engine ===
+docker build -t privguard-engine engine || exit /b 1
+docker run --rm privguard-engine || exit /b 1
+echo.
+echo All checks passed.
+exit /b 0
+
 :dev
+echo Building api image...
+call :build_with_retry "api" || exit /b 1
 echo Starting db + api...
 docker compose up -d db api || exit /b 1
 call :api_port
@@ -120,6 +196,39 @@ docker compose down -v || exit /b 1
 goto :up
 
 rem ----------------------------------------------------------------- helpers
+rem npm install / pip install inside the image build reach out to the network,
+rem and a single dropped connection on a slow link fails the whole build. Retry
+rem a few times before giving up. %~1 is an optional service name; empty builds
+rem everything.
+:build_with_retry
+set "BUILD_SVC=%~1"
+set /a BUILD_TRY=0
+:build_retry_loop
+set /a BUILD_TRY+=1
+docker compose build %BUILD_SVC%
+if not errorlevel 1 exit /b 0
+if !BUILD_TRY! geq 3 (
+  echo.
+  echo The image build failed after !BUILD_TRY! attempts. If this is a network
+  echo timeout, check your connection and try again; otherwise read the error above.
+  exit /b 1
+)
+echo.
+echo Build attempt !BUILD_TRY! failed ^(often a transient npm/pip network hiccup^). Retrying...
+ping -n 6 127.0.0.1 >nul
+goto :build_retry_loop
+
+rem uv manages the oracle's Python environment. It is the one host tool the
+rem non-Docker commands need, so say plainly where to get it rather than
+rem failing with "'uv' is not recognized".
+:require_uv
+uv --version >nul 2>&1
+if not errorlevel 1 exit /b 0
+echo uv was not found. It manages the Python environment for the oracle.
+echo Install it with:  winget install astral-sh.uv
+echo   or see:         https://docs.astral.sh/uv/getting-started/installation/
+exit /b 1
+
 :require_docker
 docker compose version >nul 2>&1
 if errorlevel 1 (
@@ -249,7 +358,7 @@ echo.
 rem findstr /n prefixes "<line>:", so token 1 is the number and token * is the
 rem text. Trim the leading "rem " off the text before printing it.
 for /f "tokens=1,* delims=:" %%a in ('findstr /n "^rem " "%~f0"') do (
-  if %%a leq 12 (
+  if %%a leq 19 (
     set "LINE=%%b"
     echo(!LINE:~4!
   )

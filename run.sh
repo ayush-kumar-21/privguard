@@ -2,6 +2,7 @@
 #
 # PrivGuard: one command to bring the whole project up.
 #
+#  App stack (Docker)
 #   ./run.sh            start db + api + ui, wait until healthy, print URLs
 #   ./run.sh dev        start db + api, then the Vite dev server with hot reload
 #   ./run.sh stop       stop the containers, keep the database
@@ -10,6 +11,12 @@
 #   ./run.sh logs [svc] follow logs, optionally for one service
 #   ./run.sh status     show what is running and on which ports
 #   ./run.sh reset      DESTROY the database volume and start clean
+#
+#  Blueprint build (see IMPLEMENTATION_PLAN.md)
+#   ./run.sh engine     build and test the Rust engine in Docker
+#   ./run.sh oracle     run the Python DP oracle test suite
+#   ./run.sh data       regenerate the SafeHealth dataset
+#   ./run.sh check      oracle + engine; everything that needs no container
 #
 set -euo pipefail
 
@@ -196,7 +203,45 @@ cmd_reset() {
   cmd_up
 }
 
+# --- blueprint build -----------------------------------------------------------
+require_uv() {
+  command -v uv >/dev/null 2>&1 && return 0
+  die "uv was not found. It manages the Python environment for the oracle.
+     Install: curl -LsSf https://astral.sh/uv/install.sh | sh
+     or see:  https://docs.astral.sh/uv/getting-started/installation/"
+}
+
+# The Rust engine builds and tests inside Docker: no host toolchain needed, and
+# the pinned base image means a build here matches CI.
+cmd_engine() {
+  require_docker
+  info "Building the Rust engine..."
+  docker build -t privguard-engine engine
+  say ""
+  info "Running the engine test suite..."
+  docker run --rm privguard-engine
+}
+
+cmd_oracle() {
+  require_uv
+  info "Running the DP oracle test suite..."
+  (cd oracle && uv run --with pytest --python 3.12 pytest "$@")
+}
+
+cmd_data() {
+  require_uv
+  info "Regenerating the SafeHealth dataset..."
+  (cd oracle && uv run --python 3.12 python -m privguard_oracle.dataset --out ../data/safehealth)
+}
+
 case "${1:-up}" in
+  # The oracle and dataset generator are plain Python via uv, so they are
+  # matched before require_docker rather than making someone start Docker
+  # Desktop to run a unit test.
+  oracle)      shift || true; cmd_oracle "$@"; exit 0 ;;
+  data)        cmd_data; exit 0 ;;
+  engine)      cmd_engine; exit 0 ;;
+  check)       cmd_oracle; say ""; cmd_engine; say ""; ok "All checks passed."; exit 0 ;;
   up|start|"") cmd_up ;;
   rebuild)     require_docker; compose build --no-cache; cmd_up --force-recreate ;;
   dev)         cmd_dev ;;
@@ -206,7 +251,7 @@ case "${1:-up}" in
   status)      require_docker; compose ps ;;
   reset)       cmd_reset ;;
   -h|--help|help)
-    sed -n '3,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '3,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     ;;
   *) die "Unknown command '$1'. Try: ./run.sh help" ;;
 esac

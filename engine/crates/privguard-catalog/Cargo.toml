@@ -1,0 +1,11 @@
+[package]
+name = "privguard-catalog"
+description = "Self-hosted sys_* catalog: schema, privacy policy, RBAC."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+privguard-core.workspace = true
+privguard-storage.workspace = true

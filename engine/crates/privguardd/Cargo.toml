@@ -1,0 +1,21 @@
+[package]
+name = "privguardd"
+description = "The PrivGuard engine daemon."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "privguardd"
+path = "src/main.rs"
+
+[dependencies]
+privguard-core.workspace = true
+privguard-storage.workspace = true
+privguard-catalog.workspace = true
+privguard-sql.workspace = true
+privguard-plan.workspace = true
+privguard-privacy.workspace = true
+privguard-crypto.workspace = true
+privguard-wire.workspace = true

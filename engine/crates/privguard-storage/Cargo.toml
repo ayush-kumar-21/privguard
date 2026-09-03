@@ -1,0 +1,10 @@
+[package]
+name = "privguard-storage"
+description = "Slotted pages, heap files, CLOCK buffer pool, B+ tree index."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+privguard-core.workspace = true

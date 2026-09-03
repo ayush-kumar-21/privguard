@@ -1,0 +1,10 @@
+[package]
+name = "privguard-crypto"
+description = "AES-256-GCM column encryption and blake3 ledger chaining."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+privguard-core.workspace = true

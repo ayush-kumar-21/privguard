@@ -27,6 +27,15 @@ frontend/dist/
 npm-debug.log*
 yarn-error.log*
 
+# --- Rust engine ---
+target/
+engine/target/
+
+# --- Generated data ---
+# The SafeHealth CSVs are a deterministic function of the seed, so they are
+# regenerated (run.bat data) rather than committed. See oracle/dataset.py.
+data/
+
 # --- Database dumps / backups ---
 *.sql
 *.dump

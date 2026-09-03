@@ -1,0 +1,10 @@
+[package]
+name = "privguard-privacy"
+description = "zCDP accounting, noise mechanisms, DP operators, budget ledger."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+privguard-core.workspace = true
