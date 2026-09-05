@@ -67,8 +67,11 @@ privguard/
 ├── docker-compose.yml       # db + api + ui
 ├── SPEC.md                          # frozen engine specification
 ├── IMPLEMENTATION_PLAN.md           # phase checklist + resume point
+├── PrivGuard_Project_Proposal.md    # title, objectives, scope, team, Gantt chart
 ├── PrivGuard_ER_Documentation.md    # 28 entities / 39 relationships
-└── PrivGuard_Rubric_Alignment.md    # how the build maps to the grading rubric
+├── PrivGuard_Data_Dictionary.md     # every table, column, key, constraint, index
+├── PrivGuard_Rubric_Alignment.md    # how the build maps to the grading rubric
+└── DEPLOYMENT.md                    # cloud deploy, Docker Hub, backup/restore drill
 ```
 
 The 28 Django models correspond 1:1 to the ER model (see `PrivGuard_ER_Documentation.md`,
@@ -81,9 +84,20 @@ run.bat            :: build and start db + api + ui, then print the URLs
 ```
 
 ```
-App  → http://localhost:8080     sign in as alice / dave / erin / frank
-API  → http://localhost:8000/api/    password: privguard123
+App  → http://localhost:8080
+API  → http://localhost:8000/api/
 ```
+
+Sign in with any seeded principal, password `privguard123`. Each one is seeded
+with a genuine query history — the budgets below were spent by really running
+queries through the DP gateway, not by writing rows:
+
+| User | Role | State |
+|---|---|---|
+| `alice` | analyst | ~21% of a ρ = 5.00 budget spent, populated burn-down |
+| `frank` | analyst | ~90% of a ρ = 0.20 budget spent — his next query is refused |
+| `dave` | dba | every surface, including policy administration |
+| `erin` | auditor | audit log and ledger |
 
 `run.sh` is the POSIX equivalent. Both start Docker Desktop if it is not already
 running, and retry the image build — `npm install` and `pip install` inside a

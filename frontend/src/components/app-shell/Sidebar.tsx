@@ -5,6 +5,7 @@ import { cn } from '../../lib/cn'
 import { useAuth } from '../../stores/auth'
 import { useUI } from '../../stores/ui'
 import { Tooltip } from '../ui/misc'
+import { RoleCard } from './RoleCard'
 import { Wordmark } from './Wordmark'
 import { NAV, type NavItem } from './nav'
 
@@ -116,6 +117,10 @@ export function Sidebar() {
       </div>
 
       <SidebarNav collapsed={collapsed} />
+
+      {/* Collapsed to a 60px rail there is no room for prose, and the tooltips
+          on the nav rows already carry the labels. */}
+      {collapsed ? null : <RoleCard />}
 
       <div
         className={cn(

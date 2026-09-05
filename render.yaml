@@ -1,0 +1,84 @@
+# Render blueprint — one-click deploy of the whole PrivGuard stack.
+#
+#   Render dashboard -> New -> Blueprint -> point at this repo.
+#
+# Everything the app needs is already environment-driven (settings.py reads
+# DATABASE_URL / SECRET_KEY / ALLOWED_HOSTS / CORS_ALLOWED_ORIGINS; the frontend
+# reads VITE_API_BASE), so nothing is hardcoded here and no secret is committed.
+#
+# Two values are marked `sync: false`. Render prompts for them at deploy time
+# because neither URL exists until the services have been created once. See
+# DEPLOYMENT.md for the exact two-pass sequence.
+
+databases:
+  - name: privguard-db
+    databaseName: safehealth
+    user: privguard
+    plan: free
+
+services:
+  # ---------------------------------------------------------------- API
+  - type: web
+    name: privguard-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    region: singapore
+    healthCheckPath: /api/health/
+    # Migrations and demo seeding run before the new instance takes traffic, so
+    # a deploy never serves a half-migrated schema. seed_demo and seed_activity
+    # are both idempotent, so redeploys do not duplicate data.
+    preDeployCommand: >-
+      python manage.py migrate --noinput &&
+      python manage.py seed_demo &&
+      python manage.py seed_activity &&
+      python manage.py refresh_catalog_stats
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: privguard-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        fromService:
+          name: privguard-api
+          type: web
+          property: host
+      # The browser origin of the UI, e.g. https://privguard-ui.onrender.com
+      # Render cannot build this string itself, so it asks on first deploy.
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+
+  # ---------------------------------------------------------------- UI
+  - type: web
+    name: privguard-ui
+    runtime: static
+    rootDir: frontend
+    plan: free
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      # Absolute API base, e.g. https://privguard-api.onrender.com/api
+      # In Docker Compose nginx proxies /api instead, so this is unset locally.
+      - key: VITE_API_BASE
+        sync: false
+    routes:
+      # SPA fallback: React Router owns every path, so anything that is not a
+      # built asset has to return index.html rather than a 404.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
