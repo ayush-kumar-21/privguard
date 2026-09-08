@@ -21,4 +21,4 @@ scipy>=1.13
 gunicorn>=22.0
 
 # --- Dev / test (optional) ---
-pytest-django>=4.8
+pytest-django>=4.14.0
