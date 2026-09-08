@@ -1,7 +1,7 @@
 # Rust toolchain for the PrivGuard engine.
 #
 # Pinned to a specific minor release so a build here and a build in CI agree.
-FROM rust:1.83-slim
+FROM rust:1.98-slim
 
 WORKDIR /engine
 
