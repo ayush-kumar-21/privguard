@@ -1,4 +1,4 @@
-FROM node:20-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 
 # npm's default 5-minute socket timeout and single attempt make CI/Docker builds
