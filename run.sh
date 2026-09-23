@@ -80,11 +80,39 @@ require_docker() {
 }
 
 # --- port discovery ----------------------------------------------------------
-# Never hardcode host ports. docker-compose.override.yml exists precisely so a
-# developer can remap them around whatever else is bound on their machine, so
-# ask Compose where a service actually landed.
+# Never hardcode host ports: another project on the machine may already hold
+# 8000 or 8080, so ask Compose where a service actually landed.
 published_port() {
-  compose port "$1" "$2" 2>/dev/null | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p' | head -1
+  # A container that failed to bind reports port 0, which is not a port.
+  # It also fails outright when the service is not running; under pipefail that
+  # must mean "no port", not abort the script.
+  { compose port "$1" "$2" 2>/dev/null || true; } | sed -n 's/.*:\([1-9][0-9]*\)$/\1/p' | head -1
+}
+
+port_free() { ! (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+
+# docker-compose.yml reads DB_PORT / API_PORT / UI_PORT. Honour one the developer
+# set, keep the port a running container already has, take the default if it is
+# free, and otherwise publish on 0 so Docker picks a free port; the rest of this
+# script discovers it through `compose port`.
+choose_port() {
+  local var="$1" default="$2" current
+  [ -n "${!var:-}" ] && return 0
+  current="$(published_port "$3" "$4")"
+  if [ -n "$current" ]; then
+    export "$var=$current"
+  elif port_free "$default"; then
+    export "$var=$default"
+  else
+    warn "Port ${default} is already in use; Docker will pick a free one for $3."
+    export "$var=0"
+  fi
+}
+
+choose_ports() {
+  choose_port DB_PORT 5432 db 5432
+  choose_port API_PORT 8000 api 8000
+  choose_port UI_PORT 8080 ui 80
 }
 
 api_port() { published_port api 8000; }
@@ -163,8 +191,9 @@ print_urls() {
 # --- commands ----------------------------------------------------------------
 cmd_up() {
   require_docker
+  choose_ports
   info "Building and starting containers..."
-  compose up -d "$@"
+  compose up -d --build "$@"
   local port; port="$(api_port)"
   [ -n "$port" ] || die "The api service did not publish a port. Check: ./run.sh logs api"
   wait_for_api "$port" || true
@@ -174,8 +203,9 @@ cmd_up() {
 
 cmd_dev() {
   require_docker
+  choose_ports
   info "Starting db + api..."
-  compose up -d db api
+  compose up -d --build db api
   local port; port="$(api_port)"
   [ -n "$port" ] || die "The api service did not publish a port. Check: ./run.sh logs api"
   wait_for_api "$port" || true

@@ -8,7 +8,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U privguard -d safehealth"]
       interval: 5s
@@ -27,7 +27,7 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     # migrate must succeed; seeding and stat refresh are best-effort (wrapped so a
     # failure is logged but does not stop the server) — and their errors are left
     # on stderr so `docker compose logs api` shows them.
@@ -46,7 +46,7 @@ services:
       api:
         condition: service_started
     ports:
-      - "8080:80"
+      - "${UI_PORT:-8080}:80"
 
 volumes:
   pgdata:
