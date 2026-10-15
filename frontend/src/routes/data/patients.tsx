@@ -189,7 +189,7 @@ export default function PatientsPage() {
               required: true,
               options: regions.data ?? [],
             },
-            { name: 'birth_year', label: 'Birth year', type: 'number', required: true },
+            { name: 'birth_year', label: 'Birth year', type: 'number', required: true, min: 1900, max: 2100 },
             {
               name: 'sex',
               label: 'Sex',

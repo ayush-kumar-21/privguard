@@ -89,7 +89,7 @@ export default function DiagnosesPage() {
   ]
 
   const formFields = [
-    { name: 'visit', label: 'Visit id', type: 'number' as const, required: true },
+    { name: 'visit', label: 'Visit id', type: 'number' as const, required: true, min: 1 },
     {
       name: 'icd10_code',
       label: 'ICD-10 code',
@@ -97,7 +97,7 @@ export default function DiagnosesPage() {
       required: true,
       description: 'Rare codes are exactly the values DP partition selection suppresses.',
     },
-    { name: 'severity', label: 'Severity (1-5)', type: 'number' as const },
+    { name: 'severity', label: 'Severity (1-5)', type: 'number' as const, min: 1, max: 5 },
     { name: 'is_primary', label: 'Primary diagnosis', type: 'boolean' as const },
   ]
 
