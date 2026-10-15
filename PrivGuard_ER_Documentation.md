@@ -5,6 +5,8 @@
 
 ---
 
+Rendered diagrams: [`docs/er/er-catalog-privacy.png`](docs/er/er-catalog-privacy.png) and [`docs/er/er-safehealth.png`](docs/er/er-safehealth.png) (Mermaid sources alongside).
+
 ## Figure Index
 
 | Figure | File | Notation | Scope |
@@ -213,6 +215,15 @@ Four M:N relationships exist conceptually and are resolved into associative enti
 ---
 
 ## 4. Design Notes Worth Defending
+
+### Why `STAFF` is not a users table
+
+The course brief forbids separate login tables such as Admin / Student / Faculty / Employee. `STAFF`
+(Subsystem F) is **not** one: it holds hospital HR facts — `full_name`, `staff_role` (job title),
+`hire_date`, department — for the *attending physician* foreign key on `VISITS`. It has no
+credentials and no login. Every account that can sign in is a row in `SYS_PRINCIPAL`
+(`accounts.Principal`, the single users table); its permissions come from `SYS_ROLE` via
+`SYS_PRINCIPAL_ROLE`.
 
 **Why is `SYS_BUDGET_LEDGER` modelled as a weak entity?**
 A ledger entry has no meaning outside its owning budget account — it records a state transition *of that account*. Its existence is fully dependent on the account, and cascade deletion would be semantically correct (though in practice the ledger is never deleted, being append-only and hash-chained).
