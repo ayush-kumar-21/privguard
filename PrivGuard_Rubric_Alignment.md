@@ -51,11 +51,11 @@ multi-statement transaction, and the audit log the rubric asks for.
 |---|---|---|---|---|
 | 1 | Problem Statement & Project Planning | 2 | Title, problem, objectives, scope, team roles, stack, deliverables, Gantt | **Draft from §7** |
 | 2 | Database Design (ER, ≥4 entities, ≥3 rel., schema, keys, constraints, 3NF) | 6 | 28 entities / 39 relationships / 5 figures / full 3NF justification | **Done** (`PrivGuard_ER_Documentation.md`) |
-| 3 | Database Implementation (CRUD, joins, views, aggregates, transactions, SP + trigger, ORM) | 8 | Django ORM over 28 Postgres tables; DP service layer; ledger trigger; reserve SP; budget/audit views | **Build** |
+| 3 | Database Implementation (CRUD, joins, views, aggregates, transactions, SP + trigger, ORM) | 8 | Django ORM over 28 Postgres tables; DP service layer; ledger trigger; reserve SP; budget/audit views | **Done** |
 | 4 | Application Development (dashboard, search, filter, pagination, validation, exceptions, responsive UI) | 4 | React: SQL Console, Budget Dashboard, Policy Admin, Audit, CRUD admin, Attack Lab | **Build** |
-| 5 | Auth, Authz & DB Security (OAuth/JWT/session, ≥2 roles, single users table, ORM authz, hashing, SQLi, secrets) | 5 | `sys_principal` = single users table; 4 roles; DRF-JWT/Google OAuth; Argon2; ORM-parameterised; `.env` | **Build + verify** |
-| 6 | Professional Practices (GitHub, backup/restore, Docker, Docker Hub, cloud deploy) | 5 | Private repo, main/dev, pg_dump/pg_restore, Docker Compose, Docker Hub, Render/Railway | **Set up** |
-| B | Bonus (CI/CD, custom domain, one best practice) | +3 | GitHub Actions + custom domain + **audit logging** (already core) | **Easy wins** |
+| 5 | Auth, Authz & DB Security (OAuth/JWT/session, ≥2 roles, single users table, ORM authz, hashing, SQLi, secrets) | 5 | `sys_principal` = single users table; 4 roles; DRF-JWT; Argon2; ORM-parameterised; `.env` | **Done** (tests in `backend/tests/test_api.py`) |
+| 6 | Professional Practices (GitHub, backup/restore, Docker, Docker Hub, cloud deploy) | 5 | Private repo, main/dev, pg_dump/pg_restore, Docker Compose, Docker Hub, Render/Railway | **Done** except Docker Hub push + live URL (external) |
+| B | Bonus (CI/CD, custom domain, one best practice) | +3 | GitHub Actions (done) + custom domain (external) + **audit logging** (done) | **+2 secured, +1 pending domain** |
 
 ---
 
@@ -168,7 +168,8 @@ Minimum is 2 roles; PrivGuard has **4** (`dp_analyst`, `clinician`, `auditor`, `
 
 ## 6. Section 6 — Professional Development Practices (5 marks)
 
-This is currently the biggest **gap**: the working directory is *not a git repository yet*.
+Status: **done** except the external items marked below (live URL, Docker Hub push, custom domain),
+which need the team's own cloud accounts. Track them in `docs/RUBRIC_COMPLETION_PLAN.md`.
 
 | Rubric item | Action |
 |---|---|
@@ -244,8 +245,7 @@ This is currently the biggest **gap**: the working directory is *not a git repos
 - [ ] **Retype schema for PostgreSQL** (`DOUBLE PRECISION`, `BYTEA`) and generate Django models.
 - [ ] **Sandbox the SQL console** — parse with `sqlglot`, execute via ORM; never run analyst SQL as raw
       SQL. (This is both a correctness and a Section-5 security requirement.)
-- [ ] **Initialise git** — repo is not under version control yet; Section 6 needs 10+ commits and 2
-      branches, so start now and commit progressively (do not backfill 10 commits at the end).
+- [x] **Git** — private repo, `main` + `dev`, 50+ commits, PR workflow, collaborators added.
 - [ ] **Confirm the users-table story** — `sys_principal` is the single Users table; be ready to say so.
 - [ ] **Right-size scope for a 2–3 person team** — 28 tables is fine (they mostly mirror each other), but
       the DP features to *fully* implement are: contribution bounding, the ledger + trigger + transaction,

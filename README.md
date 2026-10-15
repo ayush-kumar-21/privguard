@@ -1,86 +1,90 @@
 # PrivGuard
 
-**A differentially private query execution engine with budget-aware storage semantics.**
-BCSE307L Database Systems course project.
+**A differentially private query gateway for healthcare analytics.**
+BCSE307L Database Systems course project (Dr. Deepika J, Fall 2026-27).
 
 PrivGuard lets analysts run aggregate SQL over patient data while the *system* — not the
 analyst — enforces privacy: calibrated differential-privacy noise, a per-analyst privacy
 budget recorded in an append-only hash-chained ledger, and role-based column access.
 
-## Status: mid re-architecture
+> **What is graded here:** the **Django + PostgreSQL + React** application in `backend/`,
+> `frontend/` and `db/`. The Rust engine in `engine/` and the Python reference in `oracle/` are a
+> separate *research extension* (future work) and are not part of the submission.
 
-The project is being rebuilt to `privguard_blueprint.png` — a from-scratch **Rust**
-database engine (slotted pages, CLOCK buffer pool, B+ tree, a Volcano executor with the
-DP operators *inside the plan*) behind a **FastAPI** gateway.
+## Links
 
-The strategy is **build alongside, cut over at the end**: the working Django stack keeps
-running throughout, so `run.bat` always brings up a demoable app. Django is retired only
-once the engine passes the oracle.
-
-**Progress and the resume point live in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).**
-The frozen contract both implementations are built against is [`SPEC.md`](SPEC.md).
-
-| Subsystem | State |
+| | |
 |---|---|
-| `SPEC.md` — frozen specification | v1.0 |
-| `oracle/` — Python DP reference implementation | 93 tests passing |
-| `engine/` — Rust workspace, zCDP accounting | 43 tests passing |
-| `engine/` — storage, planner, executor, pgwire | Phase 2 onward |
-| `gateway/` — FastAPI | Phase 4.4 |
-| `backend/` — Django (legacy) | running; retired in Phase 5.5 |
+| Live app | **<LIVE_URL>** *(fill in after deploying — see [DEPLOYMENT.md](DEPLOYMENT.md))* |
+| Docker Hub | **<DOCKERHUB_USER>/privguard-api** · **<DOCKERHUB_USER>/privguard-ui** |
+| Repository | https://github.com/ayush-kumar-21/privguard (private) |
 
-## Tech stack
+## Technology stack (as submitted)
 
-| Layer | Target (blueprint) | Today |
-|---|---|---|
-| Frontend | React 18 · Vite · TS · Tailwind · Monaco · react-flow | React 18 · Vite · TS · Tailwind · CodeMirror |
-| Gateway | FastAPI · Uvicorn · Pydantic v2 · python-jose · argon2 | Django · DRF · SimpleJWT · argon2 |
-| Engine | Rust — `sqlparser-rs`, `pgwire`, `tokio`, `blake3`, `aes-gcm` | Python `sqlglot` + Django ORM |
-| Storage | Custom heap files · B+ tree · 8 KiB pages · self-hosted catalog | PostgreSQL |
-| Reference | Python 3.11 · NumPy/SciPy · pytest · criterion · proptest | `oracle/` (stdlib-only), pytest |
-| Ops | Docker Compose · GitHub Actions | same |
+| Layer | Technology |
+|---|---|
+| Frontend | React 18 · Vite · TypeScript · Tailwind CSS · TanStack Query · Recharts |
+| Backend | Django · Django REST Framework |
+| Database | PostgreSQL 16 |
+| ORM | Django ORM (raw SQL only for stored procedures / triggers / views) |
+| Authentication | JWT (SimpleJWT: login, refresh, logout with blacklist, `/me`) |
+| Authorization | RBAC — single users table (`sys_principal`), roles via `sys_role` |
+| Security | Argon2 password hashing · ORM-parameterised queries · secrets in `.env` |
+| Ops | Docker · Docker Compose · GitHub Actions CI · pg_dump / pg_restore |
 
-## Project layout
+## Requirement coverage
+
+| Brief section | Where it lives |
+|---|---|
+| ER diagram, schema, data dictionary | [`docs/er/`](docs/er) (PNG + Mermaid), `PrivGuard_ER_Documentation.md`, `PrivGuard_Data_Dictionary.md` |
+| Tables / constraints / 3NF / indexes | 28 tables in Django models + migrations (`backend/*/migrations`) |
+| Views, stored procedures, triggers | `backend/budget/migrations/0002…0005` (`v_*`, `sp_*`, `trg_*`) |
+| Transactions | `backend/privacy/service.py` (`transaction.atomic` + reserve/settle procedures) |
+| CRUD, search, filter, pagination | DRF viewsets in `backend/api/views.py`; React data screens in `frontend/src/routes` |
+| Validation, exception handling | DRF serializers + `backend/api/exceptions.py`; `ResourceForm` validation, `ErrorBoundary` |
+| Auth, RBAC | `backend/accounts`, `backend/api/permissions.py`, `frontend/src/components/states/RoleGate.tsx` |
+| Backup & restore | `db/backup.sh`, `db/restore.sh`, `db/verify_restore.sh` |
+| Docker, Docker Hub, deployment | `docker-compose.yml`, `*/Dockerfile`, `render.yaml`, [DEPLOYMENT.md](DEPLOYMENT.md) |
+| CI/CD | `.github/workflows/ci.yml`, `docker-publish.yml` |
+
+Full rubric mapping: [`PrivGuard_Rubric_Alignment.md`](PrivGuard_Rubric_Alignment.md).
+The delivery checklist and progress: [`docs/RUBRIC_COMPLETION_PLAN.md`](docs/RUBRIC_COMPLETION_PLAN.md).
+
+## Project layout (submission)
 
 ```
 privguard/
-├── engine/                  # Rust — the core deliverable, DB internals from scratch
-│   └── crates/
-│       ├── privguard-core/      errors, column types, RIDs
-│       ├── privguard-storage/   pages · heap files · buffer pool · B+ tree
-│       ├── privguard-catalog/   self-hosted sys_* catalog
-│       ├── privguard-sql/       parser & binder
-│       ├── privguard-plan/      logical planner + Volcano physical plan
-│       ├── privguard-privacy/   zCDP · mechanisms · DP operators · ledger
-│       ├── privguard-crypto/    AES-256-GCM columns · blake3 chaining
-│       ├── privguard-wire/      pgwire v3 server
-│       └── privguardd/          the daemon binary
-├── oracle/                  # Python DP reference implementation (stdlib only)
-├── gateway/                 # FastAPI gateway                       (Phase 4.4)
+├── backend/                 # Django project
+│   ├── accounts/            # sys_principal (custom user), roles, grants     (Subsystem C)
+│   ├── catalog/             # sys_* structural catalog + privacy policy      (Subsystems A, B)
+│   ├── budget/              # budget account + hash-chained ledger           (Subsystem D)
+│   ├── audit/               # query log, fingerprint, noise cache, overlap   (Subsystem E)
+│   ├── safehealth/          # regions…visits…lab_results demo dataset        (Subsystem F)
+│   ├── privacy/             # DP query service (sqlglot parse → ORM → noise)
+│   ├── api/                 # DRF viewsets, permissions, error handler
+│   └── tests/               # pytest suite (constraints, ledger, API/RBAC)
 ├── frontend/                # React + Vite + TS + Tailwind
-├── backend/                 # Django project (legacy — retired in Phase 5.5)
-│   ├── accounts/            # SYS_PRINCIPAL (custom user), roles, grants   (Subsystem C)
-│   ├── catalog/             # sys_* structural catalog + privacy policy    (Subsystems A, B)
-│   ├── budget/              # budget account + hash-chained ledger         (Subsystem D)
-│   ├── audit/               # query log, fingerprint, noise cache, overlap (Subsystem E)
-│   └── safehealth/          # regions…visits…lab_results demo dataset      (Subsystem F)
+├── db/                      # backup.sh · restore.sh · verify_restore.sh
+├── docs/                    # ER diagrams, completion plan
 ├── docker-compose.yml       # db + api + ui
-├── SPEC.md                          # frozen engine specification
-├── IMPLEMENTATION_PLAN.md           # phase checklist + resume point
-├── PrivGuard_Project_Proposal.md    # title, objectives, scope, team, Gantt chart
-├── PrivGuard_ER_Documentation.md    # 28 entities / 39 relationships
-├── PrivGuard_Data_Dictionary.md     # every table, column, key, constraint, index
-├── PrivGuard_Rubric_Alignment.md    # how the build maps to the grading rubric
-└── DEPLOYMENT.md                    # cloud deploy, Docker Hub, backup/restore drill
+└── DEPLOYMENT.md            # cloud deploy, Docker Hub, backup/restore drill
 ```
 
-The 28 Django models correspond 1:1 to the ER model (see `PrivGuard_ER_Documentation.md`,
-Figures 1–5). `accounts.Principal` is `AUTH_USER_MODEL` — the single users table.
+Research extension (not graded): `engine/` (Rust DB engine), `oracle/` (Python DP reference),
+`SPEC.md`, `IMPLEMENTATION_PLAN.md`, `PrivGuard_Project_Plan.md`.
 
-## Quick start
+The 28 Django models correspond 1:1 to the ER model. `accounts.Principal` is
+`AUTH_USER_MODEL` — the single users table; roles are resolved through `sys_principal_role`,
+never through per-role tables. (`staff` is hospital HR data — name, department, hire date —
+not a login table.)
+
+## Installation and execution
+
+**Docker (recommended)**
 
 ```bat
-run.bat            :: build and start db + api + ui, then print the URLs
+run.bat            :: Windows — build and start db + api + ui, then print the URLs
+./run.sh           :: Linux / macOS equivalent
 ```
 
 ```
@@ -88,9 +92,7 @@ App  → http://localhost:8080
 API  → http://localhost:8000/api/
 ```
 
-Sign in with any seeded principal, password `privguard123`. Each one is seeded
-with a genuine query history — the budgets below were spent by really running
-queries through the DP gateway, not by writing rows:
+Sign in with a seeded principal, password `privguard123`:
 
 | User | Role | State |
 |---|---|---|
@@ -99,17 +101,13 @@ queries through the DP gateway, not by writing rows:
 | `dave` | dba | every surface, including policy administration |
 | `erin` | auditor | audit log and ledger |
 
-`run.sh` is the POSIX equivalent. Both start Docker Desktop if it is not already
-running, and retry the image build — `npm install` and `pip install` inside a
-Docker build are the flakiest step on a slow connection.
+Budgets were spent by really running queries through the DP gateway, not by writing rows.
 
-### Working on the blueprint build
+**Tests**
 
-```bat
-run.bat check      :: oracle tests + engine build/test (no containers started)
-run.bat oracle     :: Python DP oracle suite            (uv, no Docker)
-run.bat engine     :: build and test the Rust engine    (Docker; no host Rust needed)
-run.bat data       :: regenerate data/safehealth/*.csv  (deterministic, seed 42)
+```bash
+cd backend && pytest                 # needs PostgreSQL (DATABASE_URL in .env)
+cd frontend && npm run build         # typecheck + production build
 ```
 
 ## Local development

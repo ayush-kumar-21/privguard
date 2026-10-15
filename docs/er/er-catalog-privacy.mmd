@@ -1,0 +1,186 @@
+erDiagram
+    SYS_DATABASE ||--o{ SYS_TABLE : contains
+    SYS_DATABASE ||--o{ SYS_BUDGET_ACCOUNT : scopes
+    SYS_DATABASE ||--o{ SYS_QUERY : receives
+
+    SYS_TABLE ||--o{ SYS_COLUMN : has
+    SYS_TABLE ||--o{ SYS_INDEX : indexed_by
+    SYS_TABLE ||--|| SYS_TABLE_PRIVACY : governed_by
+    SYS_TABLE ||--o{ SYS_QUERY_FINGERPRINT : targeted_by
+
+    SYS_INDEX ||--|{ SYS_INDEX_COLUMN : spans
+    SYS_COLUMN ||--o{ SYS_INDEX_COLUMN : appears_in
+    SYS_COLUMN ||--o| SYS_COLUMN_PRIVACY : has_policy
+    SYS_COLUMN ||--o{ SYS_COLUMN_GRANT : exposed_via
+    SYS_COLUMN ||--o{ SYS_KEY_MATERIAL : encrypted_by
+    SYS_COLUMN ||--o| SYS_TABLE_PRIVACY : is_privacy_unit_of
+
+    SYS_PRINCIPAL ||--o{ SYS_PRINCIPAL_ROLE : assumes
+    SYS_ROLE ||--o{ SYS_PRINCIPAL_ROLE : assigned_to
+    SYS_ROLE ||--o{ SYS_COLUMN_GRANT : granted
+
+    SYS_PRINCIPAL ||--o{ SYS_PRINCIPAL_ATTRIBUTE : holds
+    SYS_ATTRIBUTE ||--o{ SYS_PRINCIPAL_ATTRIBUTE : held_by
+
+    SYS_PRINCIPAL ||--o{ SYS_BUDGET_ACCOUNT : owns
+    SYS_PRINCIPAL ||--o{ SYS_QUERY : submits
+    SYS_PRINCIPAL ||--o{ SYS_NOISE_CACHE : keyed_by
+    SYS_PRINCIPAL ||--o{ SYS_PREDICATE_OVERLAP : observed_for
+
+    SYS_BUDGET_ACCOUNT ||--o{ SYS_BUDGET_LEDGER : appends
+    SYS_QUERY ||--o{ SYS_BUDGET_LEDGER : justifies
+    SYS_QUERY }o--o| SYS_QUERY_FINGERPRINT : canonicalises_to
+
+    SYS_QUERY_FINGERPRINT ||--o{ SYS_NOISE_CACHE : memoizes
+    SYS_QUERY_FINGERPRINT ||--o{ SYS_PREDICATE_OVERLAP : compared_as_a
+    SYS_QUERY_FINGERPRINT ||--o{ SYS_PREDICATE_OVERLAP : compared_as_b
+
+    SYS_DATABASE {
+        int db_id PK
+        varchar db_name UK
+        varchar dp_model
+        double default_rho
+        double default_delta
+    }
+    SYS_TABLE {
+        int table_id PK
+        int db_id FK
+        varchar table_name
+        int root_page_id
+        int privacy_unit_col FK
+        bigint est_row_count
+    }
+    SYS_COLUMN {
+        int column_id PK
+        int table_id FK
+        varchar col_name
+        int ordinal
+        varchar data_type
+        bool is_privacy_unit
+        bool is_encrypted
+    }
+    SYS_INDEX {
+        int index_id PK
+        int table_id FK
+        varchar index_name UK
+        int root_page_id
+        varchar index_type
+        bool is_unique
+    }
+    SYS_INDEX_COLUMN {
+        int index_id PK,FK
+        int ordinal PK
+        int column_id FK
+    }
+    SYS_TABLE_PRIVACY {
+        int table_id PK,FK
+        int privacy_unit_col FK
+        int max_rows_per_unit
+        int max_groups_per_unit
+        bool enforce_dp
+    }
+    SYS_COLUMN_PRIVACY {
+        int policy_id PK
+        int column_id FK,UK
+        varchar mechanism
+        double lower_clamp
+        double upper_clamp
+        int max_contrib_per_unit
+        int min_partition_size
+    }
+    SYS_PRINCIPAL {
+        int principal_id PK
+        varchar principal_name UK
+        varchar kind
+        varchar pwd_hash
+        bool is_active
+    }
+    SYS_ROLE {
+        int role_id PK
+        varchar role_name UK
+    }
+    SYS_PRINCIPAL_ROLE {
+        int principal_id PK,FK
+        int role_id PK,FK
+        timestamp granted_at
+    }
+    SYS_ATTRIBUTE {
+        int attr_id PK
+        varchar attr_name UK
+    }
+    SYS_PRINCIPAL_ATTRIBUTE {
+        int principal_id PK,FK
+        int attr_id PK,FK
+        timestamp expires_at
+    }
+    SYS_COLUMN_GRANT {
+        int grant_id PK
+        int column_id FK
+        int role_id FK
+        varchar access_mode
+        double rho_multiplier
+        varchar abe_policy_expr
+    }
+    SYS_KEY_MATERIAL {
+        int key_id PK
+        int column_id FK
+        varchar algo
+        blob wrapped_dek
+        int key_version
+    }
+    SYS_BUDGET_ACCOUNT {
+        int account_id PK
+        int principal_id FK
+        int db_id FK
+        double rho_total
+        double rho_spent
+        double rho_reserved
+        double delta_target
+        varchar status
+    }
+    SYS_BUDGET_LEDGER {
+        bigint entry_id PK
+        int account_id FK
+        bigint query_id FK
+        varchar op
+        double rho_delta
+        double rho_after
+        double eps_equiv
+        binary prev_hash
+        binary entry_hash
+    }
+    SYS_QUERY {
+        bigint query_id PK
+        int principal_id FK
+        int db_id FK
+        bigint fingerprint_id FK
+        varchar sql_text
+        varchar status
+        double rho_charged
+        double latency_ms
+    }
+    SYS_QUERY_FINGERPRINT {
+        bigint fingerprint_id PK
+        binary ast_hash UK
+        int table_id FK
+        int target_column_id FK
+        varchar agg_kind
+        varchar predicate_sig
+        int times_seen
+    }
+    SYS_NOISE_CACHE {
+        bigint cache_id PK
+        bigint fingerprint_id FK
+        int principal_id FK
+        binary noise_seed
+        varchar cached_result
+        double rho_charged
+    }
+    SYS_PREDICATE_OVERLAP {
+        bigint overlap_id PK
+        bigint fp_a FK
+        bigint fp_b FK
+        int principal_id FK
+        double jaccard_est
+        varchar action_taken
+    }

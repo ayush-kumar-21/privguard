@@ -1,0 +1,68 @@
+erDiagram
+    REGIONS ||--o{ HOSPITALS : located_in
+    REGIONS ||--o{ PATIENTS : resides_in
+    HOSPITALS ||--o{ DEPARTMENTS : operates
+    DEPARTMENTS ||--o{ STAFF : employs
+    DEPARTMENTS ||--o{ VISITS : hosts
+    PATIENTS ||--o{ VISITS : makes
+    STAFF ||--o{ VISITS : attends
+    VISITS ||--o{ DIAGNOSES : yields
+    VISITS ||--o{ LAB_RESULTS : produces
+
+    REGIONS {
+        int region_id PK
+        varchar region_name
+        varchar state_code
+    }
+    HOSPITALS {
+        int hospital_id PK
+        int region_id FK
+        varchar hospital_name
+        int bed_count
+    }
+    DEPARTMENTS {
+        int dept_id PK
+        int hospital_id FK
+        varchar dept_name
+        varchar specialty
+    }
+    STAFF {
+        int staff_id PK
+        int dept_id FK
+        varchar full_name
+        varchar staff_role
+        date hire_date
+    }
+    PATIENTS {
+        int patient_id PK "PRIVACY UNIT"
+        int region_id FK
+        varchar mrn "encrypted"
+        int birth_year
+        varchar sex
+        varchar zip3
+        varchar insurance_type
+    }
+    VISITS {
+        bigint visit_id PK
+        int patient_id FK
+        int dept_id FK
+        int attending_staff_id FK
+        timestamp admit_ts
+        timestamp discharge_ts
+        int length_of_stay_days
+        double total_charge
+    }
+    DIAGNOSES {
+        bigint diagnosis_id PK
+        bigint visit_id FK
+        varchar icd10_code
+        bool is_primary
+        int severity
+    }
+    LAB_RESULTS {
+        bigint lab_id PK
+        bigint visit_id FK
+        varchar test_code
+        double value_num
+        varchar unit
+    }
