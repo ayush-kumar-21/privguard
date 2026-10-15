@@ -22,9 +22,9 @@ jobs:
     name: DP oracle
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -50,7 +50,7 @@ jobs:
     name: Rust engine
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Pin the toolchain
         # Matches engine/Dockerfile, so a green CI means a green local build.
@@ -101,10 +101,10 @@ jobs:
       ALLOWED_HOSTS: localhost,127.0.0.1
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           # Matches backend/Dockerfile (python:3.12-slim) and the local venv.
           python-version: "3.12"
