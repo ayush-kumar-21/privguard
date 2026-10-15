@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name='syscolumnprivacy',
             constraint=models.CheckConstraint(
-                check=(
+                condition=(
                     models.Q(lower_clamp__isnull=True, upper_clamp__isnull=True) |
                     (models.Q(lower_clamp__isnull=False, upper_clamp__isnull=False) & models.Q(lower_clamp__lte=models.F('upper_clamp')))
                 ),
@@ -19,26 +19,26 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='syscolumnprivacy',
-            constraint=models.CheckConstraint(check=models.Q(max_contrib_per_unit__gte=1), name='ck_colpriv_contrib_pos'),
+            constraint=models.CheckConstraint(condition=models.Q(max_contrib_per_unit__gte=1), name='ck_colpriv_contrib_pos'),
         ),
         migrations.AddConstraint(
             model_name='syscolumnprivacy',
-            constraint=models.CheckConstraint(check=models.Q(min_partition_size__gte=0), name='ck_colpriv_min_partition_nonneg'),
+            constraint=models.CheckConstraint(condition=models.Q(min_partition_size__gte=0), name='ck_colpriv_min_partition_nonneg'),
         ),
         migrations.AddConstraint(
             model_name='systableprivacy',
-            constraint=models.CheckConstraint(check=models.Q(max_rows_per_unit__gte=1), name='ck_tabpriv_max_rows_pos'),
+            constraint=models.CheckConstraint(condition=models.Q(max_rows_per_unit__gte=1), name='ck_tabpriv_max_rows_pos'),
         ),
         migrations.AddConstraint(
             model_name='systableprivacy',
-            constraint=models.CheckConstraint(check=models.Q(max_groups_per_unit__gte=1), name='ck_tabpriv_max_groups_pos'),
+            constraint=models.CheckConstraint(condition=models.Q(max_groups_per_unit__gte=1), name='ck_tabpriv_max_groups_pos'),
         ),
         migrations.AddConstraint(
             model_name='systableprivacy',
-            constraint=models.CheckConstraint(check=models.Q(min_partition_rho__gt=0), name='ck_tabpriv_min_rho_pos'),
+            constraint=models.CheckConstraint(condition=models.Q(min_partition_rho__gt=0), name='ck_tabpriv_min_rho_pos'),
         ),
         migrations.AddConstraint(
             model_name='syscolumn',
-            constraint=models.CheckConstraint(check=models.Q(ordinal__gte=1), name='ck_column_ordinal_pos'),
+            constraint=models.CheckConstraint(condition=models.Q(ordinal__gte=1), name='ck_column_ordinal_pos'),
         ),
     ]

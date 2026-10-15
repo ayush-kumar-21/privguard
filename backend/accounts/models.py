@@ -101,7 +101,7 @@ class PrincipalAttribute(models.Model):
                 fields=["principal", "attr"], name="pk_principal_attribute"
             ),
             models.CheckConstraint(
-                check=models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=models.F("granted_at")),
+                condition=models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=models.F("granted_at")),
                 name="ck_principal_attr_expiry_after_grant",
             ),
         ]
@@ -134,7 +134,7 @@ class ColumnGrant(models.Model):
             models.UniqueConstraint(
                 fields=["column", "role"], name="uq_column_role_grant"
             ),
-            models.CheckConstraint(check=models.Q(rho_multiplier__gt=0), name="ck_grant_rho_multiplier_pos"),
+            models.CheckConstraint(condition=models.Q(rho_multiplier__gt=0), name="ck_grant_rho_multiplier_pos"),
         ]
 
 

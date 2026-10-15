@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddConstraint(
             model_name='patient',
-            constraint=models.CheckConstraint(check=models.Q(birth_year__gte=1900) & models.Q(birth_year__lte=2100), name='ck_patient_birth_year_range'),
+            constraint=models.CheckConstraint(condition=models.Q(birth_year__gte=1900) & models.Q(birth_year__lte=2100), name='ck_patient_birth_year_range'),
         ),
         migrations.AddConstraint(
             model_name='patient',
@@ -17,19 +17,19 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='visit',
-            constraint=models.CheckConstraint(check=models.Q(discharge_ts__isnull=True) | models.Q(discharge_ts__gte=models.F('admit_ts')), name='ck_visit_discharge_after_admit'),
+            constraint=models.CheckConstraint(condition=models.Q(discharge_ts__isnull=True) | models.Q(discharge_ts__gte=models.F('admit_ts')), name='ck_visit_discharge_after_admit'),
         ),
         migrations.AddConstraint(
             model_name='visit',
-            constraint=models.CheckConstraint(check=models.Q(total_charge__gte=0), name='ck_visit_charge_nonneg'),
+            constraint=models.CheckConstraint(condition=models.Q(total_charge__gte=0), name='ck_visit_charge_nonneg'),
         ),
         migrations.AddConstraint(
             model_name='diagnosis',
-            constraint=models.CheckConstraint(check=models.Q(severity__isnull=True) | (models.Q(severity__gte=1) & models.Q(severity__lte=5)), name='ck_diagnosis_severity_range'),
+            constraint=models.CheckConstraint(condition=models.Q(severity__isnull=True) | (models.Q(severity__gte=1) & models.Q(severity__lte=5)), name='ck_diagnosis_severity_range'),
         ),
         migrations.AddConstraint(
             model_name='hospital',
-            constraint=models.CheckConstraint(check=models.Q(bed_count__gt=0), name='ck_hospital_bed_count_pos'),
+            constraint=models.CheckConstraint(condition=models.Q(bed_count__gt=0), name='ck_hospital_bed_count_pos'),
         ),
         migrations.AddConstraint(
             model_name='region',

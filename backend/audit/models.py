@@ -35,7 +35,7 @@ class SysQueryFingerprint(models.Model):
             models.Index(fields=["table", "agg_kind"], name="idx_fp_table_agg"),
         ]
         constraints = [
-            models.CheckConstraint(check=models.Q(times_seen__gte=1), name="ck_fingerprint_times_seen_pos"),
+            models.CheckConstraint(condition=models.Q(times_seen__gte=1), name="ck_fingerprint_times_seen_pos"),
         ]
 
 
@@ -81,7 +81,7 @@ class SysQuery(models.Model):
             models.Index(fields=["status", "-submitted_at"], name="idx_query_status_submitted"),
         ]
         constraints = [
-            models.CheckConstraint(check=models.Q(rho_charged__gte=0), name="ck_query_rho_nonneg"),
+            models.CheckConstraint(condition=models.Q(rho_charged__gte=0), name="ck_query_rho_nonneg"),
         ]
 
 
@@ -137,8 +137,8 @@ class SysPredicateOverlap(models.Model):
             models.UniqueConstraint(
                 fields=["fp_a", "fp_b", "principal"], name="uq_overlap_pair_principal"
             ),
-            models.CheckConstraint(check=models.Q(jaccard_est__gte=0) & models.Q(jaccard_est__lte=1),
+            models.CheckConstraint(condition=models.Q(jaccard_est__gte=0) & models.Q(jaccard_est__lte=1),
                                    name="ck_overlap_jaccard_unit"),
-            models.CheckConstraint(check=models.Q(symmetric_diff_est__gte=0), name="ck_overlap_symdiff_nonneg"),
-            models.CheckConstraint(check=models.Q(fp_a__lt=models.F("fp_b")), name="ck_overlap_canonical_order"),
+            models.CheckConstraint(condition=models.Q(symmetric_diff_est__gte=0), name="ck_overlap_symdiff_nonneg"),
+            models.CheckConstraint(condition=models.Q(fp_a__lt=models.F("fp_b")), name="ck_overlap_canonical_order"),
         ]
