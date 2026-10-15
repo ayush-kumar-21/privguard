@@ -1,0 +1,70 @@
+name: Publish Docker images
+
+# Pushes the API and UI images to Docker Hub (rubric §6 — Docker Hub).
+# Requires repository secrets: DOCKERHUB_USERNAME and DOCKERHUB_TOKEN
+# (a Docker Hub access token, not your password). Skipped cleanly if unset.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    steps:
+      - name: Check credentials
+        id: creds
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ]; then
+            echo "DOCKERHUB_USERNAME secret not set - skipping publish."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.creds.outputs.ok == 'true'
+
+      - uses: docker/login-action@v3
+        if: steps.creds.outputs.ok == 'true'
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        if: steps.creds.outputs.ok == 'true'
+        id: meta-api
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/privguard-api
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+
+      - uses: docker/build-push-action@v6
+        if: steps.creds.outputs.ok == 'true'
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ steps.meta-api.outputs.tags }}
+
+      - uses: docker/metadata-action@v5
+        if: steps.creds.outputs.ok == 'true'
+        id: meta-ui
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/privguard-ui
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+
+      - uses: docker/build-push-action@v6
+        if: steps.creds.outputs.ok == 'true'
+        with:
+          context: ./frontend
+          push: true
+          tags: ${{ steps.meta-ui.outputs.tags }}
