@@ -86,7 +86,7 @@ export default function LabsPage() {
   ]
 
   const formFields = [
-    { name: 'visit', label: 'Visit id', type: 'number' as const, required: true },
+    { name: 'visit', label: 'Visit id', type: 'number' as const, required: true, min: 1 },
     {
       name: 'test_code',
       label: 'Test code',

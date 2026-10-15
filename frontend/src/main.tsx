@@ -5,6 +5,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { Toaster } from 'sonner'
 
 import App from './App'
+import { ErrorBoundary } from './components/states/ErrorBoundary'
 import { TooltipProvider } from './components/ui/misc'
 import { useUI } from './stores/ui'
 import './index.css'
@@ -51,6 +52,8 @@ function Providers() {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Providers />
+    <ErrorBoundary>
+      <Providers />
+    </ErrorBoundary>
   </StrictMode>,
 )

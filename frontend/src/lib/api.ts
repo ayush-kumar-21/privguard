@@ -150,6 +150,17 @@ export function apiError(error: unknown, fallback = 'Something went wrong.'): st
     return data.slice(0, 400)
   }
   if (data && typeof data === 'object') {
+    // Uniform envelope from api.exceptions: {error: {code, message, details}}.
+    const envelope = data.error
+    if (envelope && typeof envelope === 'object' && !Array.isArray(envelope)) {
+      const { message, details } = envelope as { message?: unknown; details?: unknown }
+      if (details && typeof details === 'object' && !Array.isArray(details)) {
+        const [field, value] = Object.entries(details)[0] ?? []
+        const text = Array.isArray(value) ? value[0] : value
+        if (field && typeof text === 'string') return `${field}: ${text}`
+      }
+      if (typeof message === 'string') return message
+    }
     for (const key of ['error', 'detail', 'non_field_errors']) {
       const value = data[key]
       if (typeof value === 'string') return value

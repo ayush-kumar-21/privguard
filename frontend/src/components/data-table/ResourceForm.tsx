@@ -24,9 +24,38 @@ export interface FormField {
   required?: boolean
   description?: string
   step?: string
+  min?: number
+  max?: number
+  maxLength?: number
 }
 
 type Values = Record<string, string | boolean>
+type Errors = Record<string, string>
+
+/** Client-side checks that mirror the API's constraints; the API stays the authority. */
+function validate(fields: FormField[], values: Values): Errors {
+  const errors: Errors = {}
+  for (const field of fields) {
+    const value = values[field.name]
+    if (field.type === 'boolean') continue
+    const text = String(value ?? '').trim()
+    if (text === '') {
+      if (field.required) errors[field.name] = `${field.label} is required.`
+      continue
+    }
+    if (field.type === 'number') {
+      const n = Number(text)
+      if (!Number.isFinite(n)) errors[field.name] = 'Enter a valid number.'
+      else if (field.min !== undefined && n < field.min)
+        errors[field.name] = `Must be at least ${field.min}.`
+      else if (field.max !== undefined && n > field.max)
+        errors[field.name] = `Must be at most ${field.max}.`
+    } else if (field.maxLength !== undefined && text.length > field.maxLength) {
+      errors[field.name] = `Must be ${field.maxLength} characters or fewer.`
+    }
+  }
+  return errors
+}
 
 function initialValues(fields: FormField[], row?: Record<string, unknown>): Values {
   const values: Values = {}
@@ -91,12 +120,14 @@ export function ResourceForm({
 }) {
   const [values, setValues] = useState<Values>(() => initialValues(fields, row))
   const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<Errors>({})
   const queryClient = useQueryClient()
 
   useEffect(() => {
     if (open) {
       setValues(initialValues(fields, row))
       setError(null)
+      setFieldErrors({})
     }
   }, [open, fields, row])
 
@@ -121,6 +152,9 @@ export function ResourceForm({
   function handleSubmit(event: FormEvent) {
     event.preventDefault()
     setError(null)
+    const problems = validate(fields, values)
+    setFieldErrors(problems)
+    if (Object.keys(problems).length > 0) return
     save.mutate()
   }
 
@@ -128,7 +162,7 @@ export function ResourceForm({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader title={title} description={description} />
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} noValidate>
           <DialogBody className="grid gap-4 sm:grid-cols-2">
             {fields.map((field) => {
               const id = `field-${field.name}`
@@ -160,6 +194,7 @@ export function ResourceForm({
                     key={field.name}
                     label={field.label}
                     htmlFor={id}
+                    error={fieldErrors[field.name]}
                     description={field.description}
                   >
                     <Select
@@ -180,6 +215,7 @@ export function ResourceForm({
                   key={field.name}
                   label={field.label}
                   htmlFor={id}
+                    error={fieldErrors[field.name]}
                   description={field.description}
                   hint={field.required ? undefined : 'optional'}
                 >
@@ -195,6 +231,10 @@ export function ResourceForm({
                             : 'text'
                     }
                     step={field.step}
+                    min={field.min}
+                    max={field.max}
+                    maxLength={field.maxLength}
+                    aria-invalid={Boolean(fieldErrors[field.name])}
                     required={field.required}
                     value={String(value)}
                     onChange={(event) =>

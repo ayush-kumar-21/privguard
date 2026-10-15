@@ -71,3 +71,18 @@ class TestSafehealthConstraints:
                 region=r, mrn="DUP001", birth_year=1991, sex="F",
                 zip3="200", insurance_type="public", enrolled_at="2021-01-01",
             )
+
+
+@pytest.mark.django_db
+class TestViews:
+    """Section 3 — the SQL views exist and are queryable."""
+
+    @pytest.mark.parametrize(
+        "view", ["v_budget_status", "v_query_audit", "v_visit_summary", "v_ledger_reconciliation"]
+    )
+    def test_view_is_queryable(self, view):
+        from django.db import connection
+
+        with connection.cursor() as cur:
+            cur.execute(f"SELECT count(*) FROM {view}")  # noqa: S608 - fixed names
+            assert cur.fetchone()[0] >= 0
