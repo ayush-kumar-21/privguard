@@ -41,7 +41,7 @@ class Hospital(models.Model):
     class Meta:
         db_table = "hospitals"
         constraints = [
-            models.CheckConstraint(check=models.Q(bed_count__gt=0), name="ck_hospital_bed_count_pos"),
+            models.CheckConstraint(condition=models.Q(bed_count__gt=0), name="ck_hospital_bed_count_pos"),
         ]
 
     def __str__(self):
@@ -109,7 +109,7 @@ class Patient(models.Model):
         ]
         constraints = [
             models.CheckConstraint(
-                check=models.Q(birth_year__gte=1900) & models.Q(birth_year__lte=2100),
+                condition=models.Q(birth_year__gte=1900) & models.Q(birth_year__lte=2100),
                 name="ck_patient_birth_year_range",
             ),
             models.UniqueConstraint(fields=["mrn"], name="uq_patient_mrn"),
@@ -156,10 +156,10 @@ class Visit(models.Model):
         ]
         constraints = [
             models.CheckConstraint(
-                check=models.Q(discharge_ts__isnull=True) | models.Q(discharge_ts__gte=models.F("admit_ts")),
+                condition=models.Q(discharge_ts__isnull=True) | models.Q(discharge_ts__gte=models.F("admit_ts")),
                 name="ck_visit_discharge_after_admit",
             ),
-            models.CheckConstraint(check=models.Q(total_charge__gte=0), name="ck_visit_charge_nonneg"),
+            models.CheckConstraint(condition=models.Q(total_charge__gte=0), name="ck_visit_charge_nonneg"),
         ]
 
     @property
@@ -191,7 +191,7 @@ class Diagnosis(models.Model):
         ]
         constraints = [
             models.CheckConstraint(
-                check=models.Q(severity__isnull=True) | (models.Q(severity__gte=1) & models.Q(severity__lte=5)),
+                condition=models.Q(severity__isnull=True) | (models.Q(severity__gte=1) & models.Q(severity__lte=5)),
                 name="ck_diagnosis_severity_range",
             ),
         ]
