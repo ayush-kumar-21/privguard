@@ -37,7 +37,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - uses: docker/metadata-action@v5
+      - uses: docker/metadata-action@v6
         if: steps.creds.outputs.ok == 'true'
         id: meta-api
         with:
@@ -53,7 +53,7 @@ jobs:
           push: true
           tags: ${{ steps.meta-api.outputs.tags }}
 
-      - uses: docker/metadata-action@v5
+      - uses: docker/metadata-action@v6
         if: steps.creds.outputs.ok == 'true'
         id: meta-ui
         with:
