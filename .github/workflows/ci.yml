@@ -97,6 +97,7 @@ jobs:
     env:
       DATABASE_URL: postgres://privguard:privguard@localhost:5432/safehealth
       SECRET_KEY: ci-test-key
+      PRIVGUARD_SERVER_SECRET: ci-noise-secret
       DEBUG: "False"
       ALLOWED_HOSTS: localhost,127.0.0.1
 

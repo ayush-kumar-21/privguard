@@ -45,23 +45,34 @@ def _user(name, role=None):
     return user
 
 
-def _executed_query(account, rows_scanned=31, latency_ms=12.5):
+def _executed_query(account, latency_ms=12.5):
     return SysQuery.objects.create(
         principal=account.principal, db=account.db, sql_text="SELECT COUNT(*) FROM visits",
-        status="executed", rho_charged=0.05, rows_scanned=rows_scanned, latency_ms=latency_ms,
+        status="executed", rho_charged=0.05, latency_ms=latency_ms,
     )
 
 
 # --------------------------------------------------------------------------
 @pytest.mark.django_db
 class TestOutputChannels:
-    def test_analyst_never_sees_exact_row_count(self, analyst, account):
-        _executed_query(account, rows_scanned=31)
+    def test_no_exact_count_is_persisted_or_returned(self, analyst, account):
+        # The column that once held the true count is gone from the model, the
+        # database (and therefore backups) and the audit view, not just the API.
+        from django.core.exceptions import FieldDoesNotExist
+
+        with pytest.raises(FieldDoesNotExist):
+            SysQuery._meta.get_field("rows_scanned")
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name IN ('sys_query', 'v_query_audit') AND column_name = 'rows_scanned'"
+            )
+            assert cur.fetchall() == []
+        _executed_query(account)
         analyst.set_password(PASSWORD)
         analyst.save()
         body = _client_for(analyst).get("/api/queries/").data["results"][0]
         assert "rows_scanned" not in body
-        assert 31 not in body.values()  # the exact count appears nowhere
 
     def test_analyst_does_not_see_latency(self, analyst, account):
         _executed_query(account)
@@ -81,12 +92,11 @@ class TestOutputChannels:
         default = [q["query_id"] for q in client.get("/api/queries/").data["results"]]
         assert by_latency == default  # the ordering parameter was ignored
 
-    def test_dba_sees_latency_but_never_rows_scanned(self, account):
+    def test_dba_sees_latency(self, account):
         _executed_query(account, latency_ms=12.5)
         dba = _user("dba_user", role="dba")
         body = _client_for(dba).get("/api/queries/").data["results"][0]
         assert body["latency_ms"] == 12.5
-        assert "rows_scanned" not in body
 
 
 # --------------------------------------------------------------------------
@@ -244,29 +254,6 @@ class TestGlobalBudgetCap:
 
 
 # --------------------------------------------------------------------------
-@pytest.fixture
-def visits(db):
-    """6 patients, 2 admission types. Patient 0 has 7 ELECTIVE visits (above the C=5 bound);
-    the other 5 patients have one ELECTIVE and one URGENT visit each."""
-    from datetime import date, datetime, timezone
-
-    from safehealth.models import Department, Hospital, Patient, Region, Staff, Visit
-
-    region = Region.objects.create(region_name="R", state_code="RR")
-    hospital = Hospital.objects.create(region=region, hospital_name="H", bed_count=10)
-    dept = Department.objects.create(hospital=hospital, dept_name="D", specialty="gen")
-    staff = Staff.objects.create(dept=dept, full_name="S", staff_role="md", hire_date=date(2020, 1, 1))
-    when = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    for i in range(6):
-        patient = Patient.objects.create(
-            region=region, mrn=f"mrn{i}", birth_year=1980, sex="F", zip3="123",
-            insurance_type="p", enrolled_at=date(2025, 1, 1))
-        for j in range(7 if i == 0 else 2):
-            Visit.objects.create(
-                patient=patient, dept=dept, attending_staff=staff, admit_ts=when,
-                total_charge=100.0, admission_type="ELECTIVE" if (i == 0 or j % 2 == 0) else "URGENT")
-
-
 @pytest.mark.django_db
 class TestGroupedAggregate:
     """Regression: GROUP BY used to return one group per *row* (n=1, units=1)."""
@@ -294,3 +281,45 @@ class TestGroupedAggregate:
     def test_scalar_aggregate_still_bounded(self, visits):
         agg = self._rows("SELECT COUNT(*) FROM visits")
         assert agg["n"] <= 5 * 6
+
+
+# --------------------------------------------------------------------------
+class TestSecretGuard:
+    """Production must not run with secrets that are public in the repository."""
+
+    def test_placeholders_rejected_in_production(self):
+        from django.core.exceptions import ImproperlyConfigured
+
+        from privguard.security import KNOWN_PLACEHOLDERS, check_secrets
+
+        for bad in sorted(KNOWN_PLACEHOLDERS):
+            with pytest.raises(ImproperlyConfigured):
+                check_secrets(False, SECRET_KEY="real-" + "x" * 40, PRIVGUARD_SERVER_SECRET=bad)
+            with pytest.raises(ImproperlyConfigured):
+                check_secrets(False, SECRET_KEY=bad, PRIVGUARD_SERVER_SECRET="real-" + "x" * 40)
+
+    def test_names_the_offending_setting(self):
+        from django.core.exceptions import ImproperlyConfigured
+
+        from privguard.security import check_secrets
+
+        with pytest.raises(ImproperlyConfigured, match="PRIVGUARD_SERVER_SECRET"):
+            check_secrets(False, SECRET_KEY="k" * 40, PRIVGUARD_SERVER_SECRET="dev-noise-secret")
+
+    def test_real_secrets_and_debug_mode_pass(self):
+        from privguard.security import check_secrets
+
+        check_secrets(False, SECRET_KEY="k" * 40, PRIVGUARD_SERVER_SECRET="n" * 40)
+        check_secrets(True, SECRET_KEY="dev-insecure-change-me", PRIVGUARD_SERVER_SECRET="dev-noise-secret")
+
+    def test_every_secret_the_repo_ships_is_a_known_placeholder(self):
+        # If someone adds a new committed placeholder, it must be added to the guard.
+        import re
+        from pathlib import Path
+
+        from privguard.security import KNOWN_PLACEHOLDERS
+
+        example = (Path(__file__).resolve().parent.parent / ".env.example").read_text()
+        for key in ("SECRET_KEY", "PRIVGUARD_SERVER_SECRET"):
+            value = re.search(rf"^{key}=(.*)$", example, re.M).group(1).strip()
+            assert value in KNOWN_PLACEHOLDERS, f"{key} in .env.example is not guarded: {value!r}"

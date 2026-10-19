@@ -72,7 +72,6 @@ class SysQuery(models.Model):
         default=0.0,
         help_text="delta spent outside the rho ledger (DP partition selection)",
     )
-    rows_scanned = models.BigIntegerField(null=True, blank=True)
     latency_ms = models.FloatField(null=True, blank=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
 
@@ -101,7 +100,12 @@ class SysNoiseCache(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
         db_column="principal_id", related_name="noise_cache",
     )
-    noise_seed = models.BinaryField(max_length=32, help_text="ChaCha20 seed, derived deterministically")
+    noise_seed = models.BinaryField(
+        max_length=32,
+        help_text="SHA-256 *commitment* to the noise seed, never the seed itself: the seed "
+                  "regenerates the noise exactly, so storing it (or letting it into a backup) "
+                  "would let anyone subtract the noise and recover the true answer.",
+    )
     cached_result = models.JSONField()
     rho_charged = models.FloatField()
     created_at = models.DateTimeField(auto_now_add=True)

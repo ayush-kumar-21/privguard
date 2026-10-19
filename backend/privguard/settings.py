@@ -10,6 +10,8 @@ from pathlib import Path
 
 import environ
 
+from .security import check_secrets
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env(
@@ -151,6 +153,10 @@ PRIVGUARD_SERVER_SECRET = env("PRIVGUARD_SERVER_SECRET", default="dev-noise-secr
 # Every DP query response is padded to at least this long, so the randomised
 # running time of the exact noise samplers is not observable (timing channel).
 PRIVGUARD_MIN_RESPONSE_MS = env.int("PRIVGUARD_MIN_RESPONSE_MS", default=150)
+
+# Refuse to start in production with a placeholder SECRET_KEY (forgeable JWTs) or noise
+# secret (analysts could recompute and subtract their own noise).
+check_secrets(DEBUG, SECRET_KEY=SECRET_KEY, PRIVGUARD_SERVER_SECRET=PRIVGUARD_SERVER_SECRET)
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
