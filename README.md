@@ -49,6 +49,7 @@ budget recorded in an append-only hash-chained ledger, and role-based column acc
 
 Full rubric mapping: [`PrivGuard_Rubric_Alignment.md`](PrivGuard_Rubric_Alignment.md).
 The delivery checklist and progress: [`docs/RUBRIC_COMPLETION_PLAN.md`](docs/RUBRIC_COMPLETION_PLAN.md).
+Security hardening of the DP gateway (findings, attack classes, fixes): [`docs/DP_HARDENING.md`](docs/DP_HARDENING.md).
 
 ## Project layout (submission)
 
