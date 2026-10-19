@@ -18,7 +18,7 @@ numpy>=2.5.4
 scipy>=1.18.1
 
 # --- Prod server ---
-gunicorn>=22.0
+gunicorn>=26.2.0
 
 # --- Dev / test (optional) ---
 pytest-django>=4.14.0
