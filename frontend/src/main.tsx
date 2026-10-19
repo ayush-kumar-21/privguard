@@ -26,11 +26,9 @@ function Providers() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={220} skipDelayDuration={300}>
-        {/* Opt in to the v7 behaviours now: state updates batched through
-            startTransition, and splat-relative paths resolved the v7 way. */}
-        <BrowserRouter
-          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        >
+        {/* No `future` flags: react-router 7 removed them (its behaviour is the default),
+            and they are optional on 6.x, so this works on both. */}
+        <BrowserRouter>
           <App />
         </BrowserRouter>
         <Toaster
