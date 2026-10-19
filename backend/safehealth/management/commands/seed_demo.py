@@ -136,6 +136,12 @@ class Command(BaseCommand):
                 BudgetAccount.objects.get_or_create(
                     principal=p, db=db,
                     defaults=dict(rho_total=rho, delta_target=1e-6, window_type="lifetime"))
+        # Database-wide cap on total rho: bounds what colluding analysts can learn
+        # together. Headroom lets a few more accounts be added before it binds.
+        if db.rho_global_cap is None:
+            total = sum(r for _, r in PRINCIPALS.values() if r is not None)
+            db.rho_global_cap = total + 5.0
+            db.save(update_fields=["rho_global_cap"])
 
     def _appdata(self, db, rng: random.Random, n_patients: int) -> None:
         regions = Region.objects.bulk_create([

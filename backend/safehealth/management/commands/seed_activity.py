@@ -28,6 +28,7 @@ from __future__ import annotations
 import random
 from datetime import timedelta
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
@@ -110,6 +111,9 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **opts):
+        # The seeder is not an adversary timing the API, so skip the response-time
+        # floor (it would add ~150 ms to every replayed query).
+        settings.PRIVGUARD_MIN_RESPONSE_MS = 0
         existing = SysQuery.objects.count()
         if existing >= ALREADY_SEEDED_THRESHOLD and not opts["force"]:
             self.stdout.write(

@@ -53,6 +53,30 @@ def _seed(ast_hash: bytes, principal_id: int, salt: bytes = b"") -> bytes:
     return hashlib.sha256(_server_secret() + ast_hash + principal_id.to_bytes(8, "big") + salt).digest()
 
 
+def partition_params(rho_part: float, groups: int, delta: float):
+    """Noise parameter and threshold for DP partition selection.
+
+    A unit lands in up to `groups` (= G, the L0 bound) partitions, so it
+    influences G independent releases. Each is eps0-DP, and G of them compose
+    (additively in zCDP) to `rho_part` when eps0 = sqrt(2 * rho_part / G). The
+    earlier code used eps0 = sqrt(2 * rho_part) for every partition, understating
+    this stage's cost by a factor of G (cf. Wilson et al., PoPETs 2020, Thm 2).
+
+    delta: a partition holding a single unit must be released with probability
+    <= delta_p, and a unit touches G partitions, so delta_p = 1-(1-delta)^(1/G).
+    The discrete Laplace tail is P(Z >= k) = e^(-eps0*k) / (1 + e^(-eps0)).
+
+    Returns (eps_fraction, tau): release a partition iff noisy_count > tau.
+    Accounting is approximate (rho, delta): the eps part is charged to the rho
+    ledger, delta is recorded separately in sys_query.delta_charged.
+    """
+    eps = mechanisms.conservative_epsilon(math.sqrt(2.0 * rho_part / groups))
+    e0 = float(eps)
+    delta_p = -math.expm1(math.log1p(-delta) / groups)
+    tau = 1.0 + math.log(1.0 / (delta_p * (1.0 + math.exp(-e0)))) / e0
+    return eps, tau
+
+
 def _build_q(filters) -> Q:
     q = Q()
     for col, op, val in filters:
@@ -104,16 +128,15 @@ def _resolve_policy(db: SysDatabase, spec) -> Policy:
     return Policy(max_rows, max_groups, mechanism, lo, hi)
 
 
-def _noise(mechanism: str, rho: float, delta1: float, delta2: float, rng: KeyedRandom) -> float:
+def _noisy(mechanism: str, true_value: float, rho: float, delta1: float, delta2: float,
+           rng: KeyedRandom, grid: float = 1.0) -> float:
+    """Release `true_value` under rho-zCDP using exact integer-grid samplers.
+
+    `grid` is 1 for counts and SUM_GRID for real-valued sums (see mechanisms.py).
+    """
     if mechanism == "gaussian":
-        return mechanics_gaussian(delta2, rho, rng)
-    if mechanism == "discrete_laplace":
-        return mechanisms.discrete_laplace(accounting.laplace_scale_from_rho(delta1, rho), rng)
-    return mechanisms.laplace(accounting.laplace_scale_from_rho(delta1, rho), rng)
-
-
-def mechanics_gaussian(delta2, rho, rng):
-    return mechanisms.gaussian(accounting.sigma_from_rho(delta2, rho), rng)
+        return mechanisms.noisy_gaussian(true_value, delta2, rho, rng, grid)
+    return mechanisms.noisy_laplace(true_value, delta1, rho, rng, grid)
 
 
 # --------------------------------------------------------------------------
@@ -147,7 +170,11 @@ def _true_aggregate(spec, policy: Policy):
     All literals are bound parameters (ORM expressions), so the SQLi posture
     is unchanged — analyst SQL never reaches PostgreSQL as SQL.
     """
-    rows = _bounded_rows(spec, policy)
+    # Aggregate over the bounded rows through a subquery on their ids.
+    # Aggregating the window-annotated queryset directly makes Django GROUP BY
+    # every annotation, which yields one group per row (n=1, units=1) — every
+    # group is then suppressed and GROUP BY queries always return nothing.
+    rows = Visit.objects.filter(visit_id__in=_bounded_rows(spec, policy).values("visit_id"))
     clamped = Least(Greatest(Coalesce(F(spec.column), Value(0.0)),
                              Value(float(policy.lo))),
                     Value(float(policy.hi))) if spec.column else None
@@ -171,18 +198,20 @@ def _execute_scalar(spec, policy: Policy, rho: float, rng: KeyedRandom):
 
     if spec.agg == "COUNT":
         delta_sens = float(C)
-        value = true_count + _noise(policy.mechanism, rho, delta_sens, delta_sens, rng)
+        value = _noisy(policy.mechanism, true_count, rho, delta_sens, delta_sens, rng)
         return [{"value": round(value, 4)}], delta_sens, true_count
     if spec.agg == "SUM":
         delta_sens = C * M
         true_sum = agg.get("total", 0.0) or 0.0
-        value = true_sum + _noise(policy.mechanism, rho, delta_sens, delta_sens, rng)
+        value = _noisy(policy.mechanism, true_sum, rho, delta_sens, delta_sens, rng,
+                       grid=mechanisms.SUM_GRID)
         return [{"value": round(value, 4)}], delta_sens, true_count
     # AVG = noisy_sum / max(noisy_count, 1), budget split 50/50
     rho_s, rho_c = rho / 2.0, rho / 2.0
     true_sum = agg.get("total", 0.0) or 0.0
-    noisy_sum = true_sum + _noise(policy.mechanism, rho_s, C * M, C * M, rng)
-    noisy_cnt = true_count + _noise(policy.mechanism, rho_c, C, C, rng)
+    noisy_sum = _noisy(policy.mechanism, true_sum, rho_s, C * M, C * M, rng,
+                       grid=mechanisms.SUM_GRID)
+    noisy_cnt = _noisy(policy.mechanism, true_count, rho_c, C, C, rng)
     return [{"value": round(noisy_sum / max(noisy_cnt, 1.0), 4)}], C * M, true_count
 
 
@@ -197,9 +226,7 @@ def _execute_grouped(spec, policy: Policy, rho: float, seed: bytes, delta_partit
 
     # DP partition selection (spend rho_part), then noise the survivors (rho_agg).
     rho_part, rho_agg = rho * 0.2, rho * 0.8
-    eps_part = math.sqrt(2.0 * rho_part)
-    scale_part = 1.0 / eps_part
-    tau = 1.0 + scale_part * math.log(1.0 / (2.0 * delta_partition))
+    eps_part, tau = partition_params(rho_part, G, delta_partition)
 
     part_rng = KeyedRandom(seed + b"partition")
     agg_rng = KeyedRandom(seed + b"aggregate")
@@ -208,12 +235,14 @@ def _execute_grouped(spec, policy: Policy, rho: float, seed: bytes, delta_partit
 
     results, suppressed = [], 0
     for r in group_rows:
-        noisy_c = r["units"] + mechanisms.laplace(scale_part, part_rng)
+        noisy_c = r["units"] + mechanisms.sample_discrete_laplace(
+            eps_part.numerator, eps_part.denominator, part_rng)
         if noisy_c <= tau:
             suppressed += 1
             continue
         true_val = (r.get("total", 0.0) or 0.0) if spec.agg == "SUM" else r["n"]
-        noisy_val = true_val + mechanics_gaussian(delta2, rho_agg, agg_rng)
+        noisy_val = _noisy("gaussian", true_val, rho_agg, delta2, delta2, agg_rng,
+                           grid=mechanisms.SUM_GRID if spec.agg == "SUM" else 1.0)
         results.append({spec.group_by: r[spec.group_by], "value": round(noisy_val, 4)})
     return results, suppressed, delta2, total_rows_scanned
 
@@ -222,6 +251,22 @@ def _execute_grouped(spec, policy: Policy, rho: float, seed: bytes, delta_partit
 # Public entry point
 # --------------------------------------------------------------------------
 def run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAULT_RHO) -> dict:
+    """Run a DP query, padding the response time to a fixed floor.
+
+    The exact samplers loop a randomised number of times, so without a floor the
+    wall-clock time is a (weak) side channel (Jin et al., IEEE S&P 2022).
+    """
+    started = time.perf_counter()
+    try:
+        return _run_private_query(principal, db_name, sql, rho_req)
+    finally:
+        floor_ms = float(getattr(settings, "PRIVGUARD_MIN_RESPONSE_MS", 0))
+        remaining = floor_ms / 1000.0 - (time.perf_counter() - started)
+        if remaining > 0:
+            time.sleep(remaining)
+
+
+def _run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAULT_RHO) -> dict:
     db = SysDatabase.objects.filter(db_name=db_name).first()
     if not db:
         raise DPQueryError(f"unknown database: {db_name}")
@@ -289,7 +334,10 @@ def run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAUL
         q.status = "rejected_budget"
         q.save(update_fields=["status"])
         account.refresh_from_db()
-        return _response("rejected_budget", [], 0.0, 0.0, policy.mechanism, q.query_id, account)
+        resp = _response("rejected_budget", [], 0.0, 0.0, policy.mechanism, q.query_id, account)
+        # Distinguish the per-analyst budget from the database-wide cap.
+        resp["reason"] = "global_cap" if status == "rejected_global_cap" else status
+        return resp
 
     try:
         if spec.group_by:
@@ -329,12 +377,16 @@ def run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAUL
 
         q.status = "executed"
         q.rho_charged = rho_req
+        # delta is spent only by DP partition selection (GROUP BY); it is outside
+        # the rho ledger, so it is recorded per query and summed per account.
+        q.delta_charged = DELTA_PARTITION if spec.group_by else 0.0
         q.latency_ms = (time.perf_counter() - started) * 1000.0
         q.rows_scanned = rows_scanned
-        q.save(update_fields=["status", "rho_charged", "latency_ms", "rows_scanned"])
+        q.save(update_fields=["status", "rho_charged", "delta_charged", "latency_ms", "rows_scanned"])
 
     account.refresh_from_db()
     resp = _response("executed", results, rho_req, eps_equiv, policy.mechanism, q.query_id, account)
+    resp["delta_charged"] = q.delta_charged
     if spec.group_by:
         resp["suppressed_groups"] = suppressed
     return resp
