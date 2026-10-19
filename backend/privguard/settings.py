@@ -148,6 +148,10 @@ CORS_ALLOWED_ORIGINS = env("CORS_ALLOWED_ORIGINS")
 # --- DP noise: server-side secret for deterministic (memoisable) noise seeds ---
 PRIVGUARD_SERVER_SECRET = env("PRIVGUARD_SERVER_SECRET", default="dev-noise-secret")
 
+# Every DP query response is padded to at least this long, so the randomised
+# running time of the exact noise samplers is not observable (timing channel).
+PRIVGUARD_MIN_RESPONSE_MS = env.int("PRIVGUARD_MIN_RESPONSE_MS", default=150)
+
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
 USE_I18N = True
