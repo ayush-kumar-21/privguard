@@ -20,7 +20,10 @@ docker run -d --name pgeval-db --network pgeval -e POSTGRES_DB=safehealth \
   -e POSTGRES_USER=privguard -e POSTGRES_PASSWORD=privguard postgres:16 >/dev/null
 for _ in $(seq 1 30); do docker exec pgeval-db pg_isready -U privguard -d safehealth >/dev/null 2>&1 && break; sleep 1; done
 docker run --rm --network pgeval -v "$ROOT_MOUNT://repo" -w //repo/backend \
-  -e DATABASE_URL=postgres://privguard:privguard@pgeval-db:5432/safehealth -e SECRET_KEY=eval -e DEBUG=False \
+  -e DATABASE_URL=postgres://privguard:privguard@pgeval-db:5432/safehealth -e SECRET_KEY=eval -e PRIVGUARD_SERVER_SECRET=eval-noise-secret -e DEBUG=False \
   -e ALLOWED_HOSTS=localhost,testserver -e CORS_ALLOWED_ORIGINS=http://localhost:5173 "$IMG" \
-  bash -c "$PIP; python manage.py migrate -v0 && python manage.py seed_demo >/dev/null 2>&1; python manage.py shell < ../eval/exp_timing.py 2>&1 | grep -v 'Insecure\|jwt\|return self\|decoded\|objects imported'"
+  bash -c "$PIP; python manage.py migrate -v0 && python manage.py seed_demo >/dev/null 2>&1; \
+    python manage.py shell < ../eval/exp_timing.py 2>&1 | grep -v 'Insecure\|jwt\|return self\|decoded\|objects imported'; \
+    echo; echo '== Experiment 4: direct database access =='; \
+    python manage.py shell < ../eval/exp_direct_access.py 2>&1 | grep -v 'Insecure\|jwt\|return self\|decoded\|objects imported'"
 docker rm -f pgeval-db >/dev/null; docker network rm pgeval >/dev/null
