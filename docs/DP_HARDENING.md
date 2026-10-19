@@ -3,7 +3,8 @@
 PrivGuard's claim is that **privacy is enforced by the system, not trusted to the analyst**. That
 only holds if the analyst has no path around the system. This document records the places we found
 where one existed, the published attack class each corresponds to, the fix, and the regression test
-that keeps it fixed. Everything below is covered by `backend/tests/test_dp_hardening.py`.
+that keeps it fixed. Everything below is covered by `backend/tests/test_dp_hardening.py`, and
+the effect of each fix is measured in [`EVALUATION.md`](EVALUATION.md).
 
 ## Findings and fixes
 
