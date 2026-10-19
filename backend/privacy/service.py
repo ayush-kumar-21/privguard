@@ -53,6 +53,15 @@ def _seed(ast_hash: bytes, principal_id: int, salt: bytes = b"") -> bytes:
     return hashlib.sha256(_server_secret() + ast_hash + principal_id.to_bytes(8, "big") + salt).digest()
 
 
+def seed_commitment(seed: bytes) -> bytes:
+    """One-way commitment stored in sys_noise_cache instead of the seed.
+
+    The seed reproduces the noise exactly (answer - noise = true value), so it
+    must never be persisted: it would sit in the table and in every pg_dump.
+    """
+    return hashlib.sha256(b"privguard/seed-commitment/v1" + seed).digest()
+
+
 def partition_params(rho_part: float, groups: int, delta: float):
     """Noise parameter and threshold for DP partition selection.
 
@@ -341,10 +350,10 @@ def _run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAU
 
     try:
         if spec.group_by:
-            results, suppressed, _, rows_scanned = _execute_grouped(spec, policy, rho_req, seed)
+            results, suppressed, _, _ = _execute_grouped(spec, policy, rho_req, seed)
         else:
             rng = KeyedRandom(seed)
-            results, _, rows_scanned = _execute_scalar(spec, policy, rho_req, rng)
+            results, _, _ = _execute_scalar(spec, policy, rho_req, rng)
             suppressed = 0
     except DPQueryError:
         # Policy error: abort and re-raise for the API to map to 400
@@ -366,7 +375,7 @@ def _run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAU
                      [account.account_id, q.query_id, rho_req, True, policy.mechanism, eps_equiv, None])
 
         SysNoiseCache.objects.create(
-            fingerprint=fingerprint, principal=principal, noise_seed=seed,
+            fingerprint=fingerprint, principal=principal, noise_seed=seed_commitment(seed),
             # JSONField encodes for us; json.dumps here would double-encode.
             cached_result=results, rho_charged=rho_req,
         )
@@ -381,8 +390,9 @@ def _run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAU
         # the rho ledger, so it is recorded per query and summed per account.
         q.delta_charged = DELTA_PARTITION if spec.group_by else 0.0
         q.latency_ms = (time.perf_counter() - started) * 1000.0
-        q.rows_scanned = rows_scanned
-        q.save(update_fields=["status", "rho_charged", "delta_charged", "latency_ms", "rows_scanned"])
+        # The exact row count is deliberately NOT persisted: for a COUNT it is the
+        # un-noised answer, and anything stored here reaches views and backups.
+        q.save(update_fields=["status", "rho_charged", "delta_charged", "latency_ms"])
 
     account.refresh_from_db()
     resp = _response("executed", results, rho_req, eps_equiv, policy.mechanism, q.query_id, account)
