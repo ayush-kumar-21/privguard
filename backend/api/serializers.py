@@ -1,3 +1,4 @@
+from django.db.models import Sum
 from rest_framework import serializers
 
 from accounts.models import ColumnGrant, Role
@@ -98,21 +99,45 @@ class TablePrivacySerializer(serializers.ModelSerializer):
 class BudgetAccountSerializer(serializers.ModelSerializer):
     principal_name = serializers.CharField(source="principal.username", read_only=True)
     rho_remaining = serializers.FloatField(read_only=True)
+    delta_spent = serializers.SerializerMethodField()
 
     class Meta:
         model = BudgetAccount
         fields = (
             "account_id", "principal_name", "rho_total", "rho_spent",
-            "rho_reserved", "rho_remaining", "delta_target", "window_type", "status",
+            "rho_reserved", "rho_remaining", "delta_target", "delta_spent",
+            "window_type", "status",
         )
+
+    def get_delta_spent(self, obj) -> float:
+        """delta spent outside the rho ledger (DP partition selection)."""
+        return SysQuery.objects.filter(
+            principal=obj.principal, db=obj.db, status="executed",
+        ).aggregate(total=Sum("delta_charged"))["total"] or 0.0
 
 
 class QueryAuditSerializer(serializers.ModelSerializer):
+    """Audit view of a query.
+
+    Deliberately omits `rows_scanned`: for a COUNT it is the *exact* un-noised
+    answer, so exposing it to the analyst who ran the query would bypass the DP
+    mechanism entirely. `latency_ms` is data-dependent and therefore a timing
+    side channel (Haeberlen et al., Jin et al.), so it is shown only to roles
+    that already see the whole audit log.
+    """
     principal_name = serializers.CharField(source="principal.username", read_only=True)
+    delta_charged = serializers.FloatField(read_only=True)
 
     class Meta:
         model = SysQuery
         fields = (
-            "query_id", "principal_name", "status", "rho_charged",
-            "rows_scanned", "latency_ms", "sql_text", "submitted_at",
+            "query_id", "principal_name", "status", "rho_charged", "delta_charged",
+            "latency_ms", "sql_text", "submitted_at",
         )
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        user = getattr(self.context.get("request"), "user", None)
+        if not (user and (user.is_superuser or user.has_role("dba") or user.has_role("auditor"))):
+            data.pop("latency_ms", None)
+        return data

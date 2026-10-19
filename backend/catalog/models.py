@@ -23,11 +23,22 @@ class SysDatabase(models.Model):
     )
     default_rho = models.FloatField(help_text="Default zCDP budget per account")
     default_delta = models.FloatField(help_text="e.g. 1e-6, must be << 1/N")
+    rho_global_cap = models.FloatField(
+        null=True, blank=True,
+        help_text="Cap on total rho (spent + reserved) across ALL accounts of this "
+                  "database. Bounds the damage from colluding analysts; NULL = no cap.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "sys_database"
         verbose_name = "database"
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(rho_global_cap__isnull=True) | models.Q(rho_global_cap__gt=0),
+                name="ck_database_global_cap_pos",
+            ),
+        ]
 
     def __str__(self):
         return self.db_name

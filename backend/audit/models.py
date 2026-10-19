@@ -68,6 +68,10 @@ class SysQuery(models.Model):
     plan_json = models.JSONField(null=True, blank=True)
     status = models.CharField(max_length=24, choices=STATUS_CHOICES)
     rho_charged = models.FloatField(default=0.0)
+    delta_charged = models.FloatField(
+        default=0.0,
+        help_text="delta spent outside the rho ledger (DP partition selection)",
+    )
     rows_scanned = models.BigIntegerField(null=True, blank=True)
     latency_ms = models.FloatField(null=True, blank=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
@@ -82,6 +86,7 @@ class SysQuery(models.Model):
         ]
         constraints = [
             models.CheckConstraint(condition=models.Q(rho_charged__gte=0), name="ck_query_rho_nonneg"),
+            models.CheckConstraint(condition=models.Q(delta_charged__gte=0), name="ck_query_delta_nonneg"),
         ]
 
 
