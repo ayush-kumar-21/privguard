@@ -10,6 +10,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "privguard.settings")
 for _k, _v in {
     "DATABASE_URL": "postgres://u:p@localhost:5432/x",
     "SECRET_KEY": "eval",
+    "PRIVGUARD_SERVER_SECRET": "eval-noise-secret",
     "DEBUG": "False",
     "ALLOWED_HOSTS": "localhost,testserver",
     "CORS_ALLOWED_ORIGINS": "http://localhost:5173",

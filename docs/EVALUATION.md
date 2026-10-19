@@ -15,6 +15,7 @@ confidence intervals. Everything reproduces with Docker only:
 | 2a. Partition δ | Does a lone unit's partition leak more than the stated δ? | Old: **3.0× the target δ**. New: 1.0×. |
 | 2b. Partition utility | What does the correct fix cost? | Groups need roughly **2× as many units** to be released. |
 | 3. Timing | Can an analyst tell a small slice from a large one by response time? | Without the floor: detectable (AUC 0.38, CI excludes 0.5). With it: not detectable (AUC 0.52). |
+| 4. Direct database access | What can a holder of *database* credentials (or a backup) read? | Application role: everything. Analyst login: 9 of 11 attempts denied; only its own 500 query rows readable, another analyst's 2 rows invisible. Noise-seed replay: old storage recovers the true count exactly (40); new storage does not (44). |
 
 ## Experiment 0 — the exact-count leak
 
@@ -95,10 +96,55 @@ power is the AUC of "small vs large": 0.5 is no information.
 
 ![timing](eval/exp3_timing.png)
 
+Timing varies between runs (the figures above are from one run; the verdicts — detectable without the
+floor, not with it — held on every run we made).
+
 *Reading this honestly:* the leak is real but small — the medians differ by half a millisecond, and
 the larger slice was actually slightly *faster*, so the direction is not what one would guess. It
 is nonetheless statistically significant with only 120 samples per class, and an attacker with more
 samples would do better. The floor removes it at the cost of a fixed 150 ms per query.
+
+## Experiment 4 — direct database access
+
+Everything above goes through the API. This asks what someone with the *database* can do: a stolen
+connection string, a restored backup, an analyst-facing BI connection.
+
+### 4A. The same attempts as the application role and as an analyst login
+
+Seeded database; `alice` logs in as `analyst_<her id>` (a member of `privguard_analyst`); `frank`
+has two queries of his own so row-level isolation is exercised.
+
+| Attempt | Application role | Analyst login |
+|---|---|---|
+| read raw patients (incl. `mrn`) | allowed | **denied** |
+| read raw visits | allowed | **denied** |
+| read exact per-department aggregates (`v_visit_summary`) | allowed | **denied** |
+| read cached answers + seed material (`sys_noise_cache`) | allowed | **denied** |
+| read the budget ledger | allowed | **denied** |
+| read the user table (password hashes) | allowed | **denied** |
+| read the timing column of `sys_query` | allowed | **denied** |
+| read own query history | 502 rows (everyone's) | 500 rows (own only) |
+| read another analyst's query history | 2 rows | **0 rows** |
+| grant self more budget (`UPDATE`) | allowed | **denied** |
+| `CALL sp_refill_budget` | allowed | **denied** |
+
+(The application role is the table owner, which PostgreSQL exempts from row-level security; the
+point of the column is the contrast, not that the owner is "wrong" to read its own data.)
+
+### 4B. The noise-seed replay attack
+
+The attacker reads the seed from `sys_noise_cache`, replays the noise and subtracts it from the DP
+answer they were given.
+
+| | Value |
+|---|---|
+| ground-truth count | 40 |
+| DP answer given to the analyst | 25 |
+| attacker, **old** storage (raw seed in the table) | recovers **40 — exact** |
+| attacker, **new** storage (commitment only) | recovers 44 — wrong |
+
+The same replay works with *no database access at all* if the server secret is the public default
+(finding 10 in `DP_HARDENING.md`), which is why the app now refuses to start in production with one.
 
 ## Limitations of the evaluation
 
@@ -106,6 +152,10 @@ samples would do better. The floor removes it at the cost of a fixed 150 ms per 
   HTTP API. Experiment 3 does go through the gateway and database but in-process, so network
   jitter that would hide small differences in a real deployment is absent (this makes the attack
   look *stronger* than it would be remotely).
+* Experiment 4 is a single run on one slice, not a statistical estimate: the outcomes are
+  deterministic (a permission is granted or it is not; a seed replays exactly or it does not), so
+  repeating it would add nothing. It does not test a managed database that forbids `CREATE ROLE`
+  (the role is then simply absent).
 * The floating-point attack of Mironov / Jin et al. is **not** measured: the old samplers were
   replaced on the strength of the published analysis, not a demonstrated exploit here.
 * One true count, one ρ and one G per experiment; the shapes are what matter, not the constants.
