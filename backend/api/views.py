@@ -143,7 +143,16 @@ class QueryAuditViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
     filterset_fields = ["status"]
     search_fields = ["sql_text"]
-    ordering_fields = ["submitted_at", "rho_charged", "latency_ms"]
+
+    @property
+    def ordering_fields(self):
+        # Sorting by a hidden column would leak its order, so analysts may not
+        # sort by latency (see QueryAuditSerializer).
+        fields = ["submitted_at", "rho_charged"]
+        user = getattr(getattr(self, "request", None), "user", None)
+        if user and (user.is_superuser or user.has_role("dba") or user.has_role("auditor")):
+            fields.append("latency_ms")
+        return fields
 
     def get_queryset(self):
         return _scoped(SysQuery.objects.select_related("principal"), self.request.user).order_by("-submitted_at")

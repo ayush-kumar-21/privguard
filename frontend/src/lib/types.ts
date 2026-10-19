@@ -36,8 +36,9 @@ export interface QueryAudit {
   principal_name: string
   status: QueryStatus
   rho_charged: number
-  rows_scanned: number | null
-  latency_ms: number | null
+  /** Present only for dba/auditor (timing side channel). */
+  latency_ms?: number | null
+  delta_charged?: number
   sql_text: string
   submitted_at: string
 }
