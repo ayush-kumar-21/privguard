@@ -17,6 +17,7 @@ use privguard_privacy::operators::{
 use privguard_privacy::policy::{ColumnPolicy, Mechanism, TablePolicy};
 use privguard_privacy::{defaults, PrivacyPolicy};
 use privguard_sql::{Agg, BoundQuery, CmpOp, ColumnMeta, MockCatalog, TableMeta};
+use privguard_storage::ValueCipher;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
@@ -105,6 +106,10 @@ pub fn scan(
 ) -> Result<Box<dyn RowSource>> {
     let heap = catalog.open_heap(&table.name)?;
     let types = table.column_types();
+    // Errors rather than decoding garbage if columns are encrypted and no key is loaded.
+    let cipher = catalog
+        .table_cipher(&table.name)?
+        .map(|c| Box::new(c) as Box<dyn ValueCipher>);
     for (i, col) in table.columns.iter().enumerate() {
         if col.col_type != ColumnType::I64 || !catalog.index_path(&table.name, &col.name).exists() {
             continue;
@@ -112,10 +117,12 @@ pub fn scan(
         let (lo, hi) = key_bounds(preds, i);
         if lo.is_some() || hi.is_some() {
             let index = catalog.open_index(&table.name, &col.name)?;
-            return Ok(Box::new(IndexScan::new(&heap, &index, lo, hi, types)?));
+            return Ok(Box::new(IndexScan::with_cipher(
+                &heap, &index, lo, hi, types, cipher,
+            )?));
         }
     }
-    Ok(Box::new(HeapScan::new(&heap, types)?))
+    Ok(Box::new(HeapScan::with_cipher(&heap, types, cipher)?))
 }
 
 fn compile_filters(table: &TableDef, query: &BoundQuery) -> Result<Vec<Predicate>> {

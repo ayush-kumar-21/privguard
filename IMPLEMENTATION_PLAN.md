@@ -11,17 +11,24 @@ section first, then continue at the first unchecked box.
 
 ## Resume point
 
-> **Done: Phase 0 and Phase 1 (WK 1–2 Foundation).**
-> **Next up: Phase 2.1 — the 8 KiB slotted page layout in `privguard-storage`.**
+> **Done: Phases 0-3 of `TEAM_PLAN.md` (foundations, engine core, integration).**
+> **Next up: Phase 4 (verification and evaluation): criterion benchmarks, proptest, the
+> engine-vs-oracle differential test, attack lab v2.**
 
-Last updated: 2026-09-03
+Last updated: 2026-10-21 (Gourishankar)
+
+The gate demo works: a `SELECT COUNT(*)` from the UI goes gateway -> pgwire -> engine, is charged to
+the hash-chained ledger, and a repeat returns the cached answer at zero cost. To run it:
+`privguardd load` + `seed-demo`, `privguardd serve`, the gateway with `PRIVGUARD_ENGINE_ADDR`, and
+`npm run dev:gateway` (see `gateway/README.md`).
 
 **Verified green as of that date** (`run.bat check`):
 
 | Suite | Command | Result |
 |---|---|---|
-| DP oracle | `run.bat oracle` | 138 passed |
-| Rust engine | `run.bat engine` | 43 passed, fmt clean, clippy `-D warnings` clean |
+| DP oracle | `run.bat oracle` | 142 passed |
+| Rust engine | `run.bat engine` | all pass, fmt and clippy `-D warnings` clean (on a Windows host two bit-exact libm tests in `privguard-privacy::mechanisms` differ in the last bit; Linux CI is the authority) |
+| FastAPI gateway | `run.bat gateway` | 67 passed (the pgwire tests drive the real daemon) |
 | Django (legacy) | `run.bat` then browse :8080 | still runs — untouched by the pivot |
 
 ### Where to pick up
@@ -122,9 +129,9 @@ executor over it. No DP yet — prove the DB internals first.
 - [x] 2.5 Self-hosted catalog persisted in the store itself (`sys_*` tables)
 - [ ] 2.6 Parser & binder over `sqlparser-rs`, resolving against the catalog
 - [x] 2.7 Logical planner — query → logical operator tree
-- [ ] 2.8 Volcano physical executor — `Scan`, `Filter`, `Aggregate`, `GroupBy`
+- [x] 2.8 Volcano physical executor — `Scan`, `Filter`, `Aggregate`, `GroupBy`
 - [x] 2.9 Loader: synthetic dataset → heap files
-- [ ] 2.10 Baseline correctness tests vs. the oracle's non-private aggregates
+- [x] 2.10 Baseline correctness tests vs. the oracle's non-private aggregates
 
 ---
 
@@ -136,8 +143,8 @@ Goal: the three core contributions from the blueprint.
 - [ ] 3.2 Noise mechanisms — keyed deterministic stream, Laplace / discrete Laplace / Gaussian
 - [x] 3.3 **Physical DP operators**: `Clamp` → `ContributionBound` → `DPAggregate` → `PartitionSelect`
 - [x] 3.4 **Budget manager** — hash-chained append-only ledger, reserve → commit/abort (WAL-like)
-- [ ] 3.5 **Privacy rewriter** — query fingerprinting, policy check, noise cache (defeats repeat-and-average)
-- [ ] 3.6 Correlation / predicate-overlap detection
+- [x] 3.5 **Privacy rewriter** — query fingerprinting, policy check, noise cache (defeats repeat-and-average)
+- [x] 3.6 Correlation / predicate-overlap detection
 - [ ] 3.7 Property tests (`proptest`) — budget never over-spends, ledger chain never forks
 - [ ] 3.8 Differential test: Rust engine vs. Python oracle on identical seeds
 
@@ -145,15 +152,15 @@ Goal: the three core contributions from the blueprint.
 
 ## Phase 4 — WK 9–11 · Access + interfaces
 
-- [ ] 4.1 RBAC — roles, principals, column grants enforced in the binder
-- [ ] 4.2 AES-256-GCM column encryption at the access-method layer
-- [ ] 4.3 pgwire v3 server — startup, auth, simple query, result rows
+- [x] 4.1 RBAC — roles, principals, column grants enforced in the binder
+- [x] 4.2 AES-256-GCM column encryption at the access-method layer
+- [x] 4.3 pgwire v3 server — startup, auth, simple query, result rows
 - [x] 4.4 FastAPI gateway — auth (JWT, python-jose, argon2), query endpoint, budget + audit views
-- [ ] 4.5 psycopg3 client path: gateway → engine
-- [ ] 4.6 Frontend: swap CodeMirror → **Monaco** SQL console
-- [ ] 4.7 Frontend: **react-flow** plan viewer
+- [x] 4.5 psycopg3 client path: gateway → engine
+- [x] 4.6 Frontend: swap CodeMirror → **Monaco** SQL console
+- [x] 4.7 Frontend: **react-flow** plan viewer
 - [x] 4.8 Frontend: repoint API client at the FastAPI gateway
-- [ ] 4.9 Policy admin column × role grid against the new catalog
+- [x] 4.9 Policy admin column × role grid against the new catalog
 
 ---
 
@@ -222,6 +229,6 @@ no demo login worked.
 | ID | Component | Description | Status |
 |---|---|---|---|
 | **P1-1** | `backend/api/permissions.py` (`IsClinicianOrDbaOrReadOnly`) | `SAFE_METHODS` (`GET`) are permitted for *any* authenticated user, allowing a `dp_analyst` (`alice`) to read un-noised individual rows from `/api/visits/` and `/api/patients/` at $\rho = 0$. Exposed by `attacks/demo.py` (`run_crud_bypass_probe`). | Open (addressed in Phase 3/4 RBAC + Phase 5 Django retirement) |
-| **P1-2** | `backend/privacy/service.py` / `sys_predicate_overlap` | `sys_predicate_overlap` is defined in `backend/audit/models.py` and truncated in `seed_demo`, but `run_private_query()` never populates or checks it. High-Jaccard differencing queries ($Q(D)$ vs $Q(D \setminus \{x\})$, Jaccard $= 599/600 = 0.9983 > 0.8$) execute with `overlap_rows = 0`. Exposed by `attacks/demo.py` (`run_differencing_attack`). | Open (addressed in Task 3.6 predicate-overlap detector) |
-| **P1-3** | `backend/privacy/sql.py` / `SysNoiseCache` | `QuerySpec.canonical()` hashes raw AST filter literals without clamping/domain normalisation or overlap checking. Tautological `WHERE` rewrites (`AND total_charge <= 1000001.0`, `1000002.0`, ...) produce distinct fingerprints, bypassing `SysNoiseCache` memoisation and drawing fresh independent noise on identical row sets. Exposed by `attacks/demo.py` (`run_tautology_averaging_probe`). | Open (addressed in Tasks 3.5/3.6 rewriter + overlap detector) |
+| **P1-2** | `backend/privacy/service.py` / `sys_predicate_overlap` | `sys_predicate_overlap` is defined in `backend/audit/models.py` and truncated in `seed_demo`, but `run_private_query()` never populates or checks it. High-Jaccard differencing queries ($Q(D)$ vs $Q(D \setminus \{x\})$, Jaccard $= 599/600 = 0.9983 > 0.8$) execute with `overlap_rows = 0`. Exposed by `attacks/demo.py` (`run_differencing_attack`). | Fixed in the Rust engine (Phase 3: predicate-overlap detection, `privguard-plan::rewriter`); open in the legacy Django stack |
+| **P1-3** | `backend/privacy/sql.py` / `SysNoiseCache` | `QuerySpec.canonical()` hashes raw AST filter literals without clamping/domain normalisation or overlap checking. Tautological `WHERE` rewrites (`AND total_charge <= 1000001.0`, `1000002.0`, ...) produce distinct fingerprints, bypassing `SysNoiseCache` memoisation and drawing fresh independent noise on identical row sets. Exposed by `attacks/demo.py` (`run_tautology_averaging_probe`). | Fixed in the Rust engine (Phase 3: noise cache and overlap detection refuse the tautology rewrite); open in the legacy Django stack |
 | **P1-4** | `backend/privacy/sql.py` (`_literal_value`) | Negative numeric literals in `WHERE` clauses are parsed by `sqlglot` as `exp.Neg(exp.Literal)` and rejected with HTTP 400 (`unsupported literal`). Rust `privguard-sql` (Task 2.6) handles `UnaryOp::Minus` on numeric literals properly. | Fixed in Rust (`privguard-sql` 2.6); open in legacy Django parser |

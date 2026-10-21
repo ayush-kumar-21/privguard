@@ -8,3 +8,5 @@ license.workspace = true
 
 [dependencies]
 privguard-core.workspace = true
+privguard-storage.workspace = true
+aes-gcm.workspace = true

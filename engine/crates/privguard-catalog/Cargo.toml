@@ -9,3 +9,4 @@ license.workspace = true
 [dependencies]
 privguard-core.workspace = true
 privguard-storage.workspace = true
+privguard-crypto.workspace = true

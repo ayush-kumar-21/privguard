@@ -146,7 +146,9 @@ impl Engine {
         if server_secret.len() < 16 {
             return Err(Error::policy("the server secret must be at least 16 bytes"));
         }
-        let catalog = Catalog::open(dir)?;
+        let mut catalog = Catalog::open(dir)?;
+        // The column key lives in the process environment, never in the catalog files.
+        catalog.set_keyring(privguard_crypto::Keyring::from_env()?);
         let mut e = Engine {
             dir: dir.to_path_buf(),
             catalog,
