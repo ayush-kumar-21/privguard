@@ -15,6 +15,7 @@
 #  Blueprint build (see IMPLEMENTATION_PLAN.md)
 #   ./run.sh engine     build and test the Rust engine in Docker
 #   ./run.sh oracle     run the Python DP oracle test suite
+#   ./run.sh gateway    run the FastAPI gateway test suite
 #   ./run.sh data       regenerate the SafeHealth dataset
 #   ./run.sh check      oracle + engine; everything that needs no container
 #
@@ -261,14 +262,21 @@ cmd_data() {
   (cd oracle && uv run --python 3.12 python -m privguard_oracle.dataset --out ../data/safehealth)
 }
 
+cmd_gateway() {
+  require_uv
+  info "Running the FastAPI gateway test suite..."
+  (cd gateway && uv run --extra dev --python 3.12 pytest "$@")
+}
+
 case "${1:-up}" in
   # The oracle and dataset generator are plain Python via uv, so they are
   # matched before require_docker rather than making someone start Docker
   # Desktop to run a unit test.
   oracle)      shift || true; cmd_oracle "$@"; exit 0 ;;
   data)        cmd_data; exit 0 ;;
+  gateway)     shift || true; cmd_gateway "$@"; exit 0 ;;
   engine)      cmd_engine; exit 0 ;;
-  check)       cmd_oracle; say ""; cmd_engine; say ""; ok "All checks passed."; exit 0 ;;
+  check)       cmd_oracle; say ""; cmd_gateway; say ""; cmd_engine; say ""; ok "All checks passed."; exit 0 ;;
   up|start|"") cmd_up ;;
   rebuild)     require_docker; compose build --no-cache; cmd_up --force-recreate ;;
   dev)         cmd_dev ;;

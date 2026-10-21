@@ -15,6 +15,7 @@ rem
 rem  Blueprint build (see IMPLEMENTATION_PLAN.md)
 rem   run.bat engine     build and test the Rust engine in Docker
 rem   run.bat oracle     run the Python DP oracle test suite
+rem   run.bat gateway    run the FastAPI gateway test suite
 rem   run.bat data       regenerate the SafeHealth dataset
 rem   run.bat check      oracle + engine; everything that needs no container
 
@@ -42,6 +43,7 @@ if /i "%CMD%"=="start"   goto :up
 if /i "%CMD%"=="build"   goto :build
 if /i "%CMD%"=="engine"  goto :engine
 if /i "%CMD%"=="check"   goto :check
+if /i "%CMD%"=="gateway" goto :gateway
 if /i "%CMD%"=="dev"     goto :dev
 if /i "%CMD%"=="stop"    goto :stop
 if /i "%CMD%"=="down"    goto :stop
@@ -109,6 +111,15 @@ set "RC=!errorlevel!"
 popd
 exit /b !RC!
 
+:gateway
+call :require_uv || exit /b 1
+echo Running the FastAPI gateway test suite...
+pushd gateway
+uv run --extra dev --python 3.12 pytest %2 %3 %4
+set "RC=!errorlevel!"
+popd
+exit /b !RC!
+
 :data
 call :require_uv || exit /b 1
 echo Regenerating the SafeHealth dataset...
@@ -124,6 +135,13 @@ call :require_uv || exit /b 1
 echo === DP oracle ===
 pushd oracle
 uv run --with pytest --python 3.12 pytest
+set "RC=!errorlevel!"
+popd
+if not "!RC!"=="0" exit /b !RC!
+echo.
+echo === FastAPI gateway ===
+pushd gateway
+uv run --extra dev --python 3.12 pytest
 set "RC=!errorlevel!"
 popd
 if not "!RC!"=="0" exit /b !RC!
