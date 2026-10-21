@@ -104,6 +104,12 @@ class EngineClient(Protocol):
 
     def explain(self, principal: Principal, sql: str) -> dict: ...
 
+    def policy_grid(self, principal: Principal) -> dict: ...
+
+    def set_grant(
+        self, principal: Principal, role: str, table: str, column: str, granted: bool
+    ) -> None: ...
+
 
 def epsilon_from_rho(rho: float, delta: float = DELTA) -> float:
     """The (epsilon, delta) reporting projection of a rho spend (`SPEC.md` §4.1)."""
@@ -132,6 +138,21 @@ _GROUPED = {
     ("sum", "admission_type"): [("ELECTIVE", 41234.5), ("EMERGENCY", 38002.1), ("URGENT", 18886.9)],
     ("sum", "dept_id"): [(1, 33120.4), (2, 36408.0), (3, 28595.0)],
 }
+
+
+# Fact-table columns as the engine reports them: (column, type, access, filterable, groupable, clamp).
+_COLUMNS = [
+    ("visit_id", "i64", "aggregate_only", False, False, None),
+    ("patient_id", "i64", "denied", False, False, None),
+    ("dept_id", "i64", "allowed", True, True, None),
+    ("attending_staff_id", "i64", "aggregate_only", False, False, None),
+    ("admit_ts", "timestamp", "allowed", True, False, None),
+    ("discharge_ts", "timestamp", "allowed", True, False, None),
+    ("total_charge", "f64", "aggregate_only", True, False, (0.0, 1000.0)),
+    ("admission_type", "text", "allowed", True, True, None),
+]
+_GRANTABLE = ("dept_id", "total_charge", "admission_type", "admit_ts", "discharge_ts")
+_ROLES = ("auditor", "clinician", "dba", "dp_analyst")
 
 
 def _canonical(sql: str) -> str:
@@ -170,6 +191,11 @@ class StubEngine:
         self._cache: dict[tuple[str, str], QueryOutcome] = {}
         self._audit: list[AuditRow] = []
         self._ledger_entries: dict[str, int] = {}
+        self._grants = {
+            (role, "visits", col)
+            for role in ("dp_analyst", "auditor")
+            for col in _GRANTABLE
+        }
 
     # -- helpers (callers hold the lock)
     def _view(self, name: str) -> BudgetView:
@@ -319,3 +345,40 @@ class StubEngine:
             "sensitivity": 5.0,
             "privacy_unit": "patient_id",
         }
+
+    # -- policy grid
+    def policy_grid(self, principal: Principal) -> dict:
+        if not principal.is_privileged:
+            raise EngineError("policy", "requires one of the roles: dba, auditor")
+        with self._lock:
+            grants = set(self._grants)
+        return {
+            "roles": list(_ROLES),
+            "columns": [
+                {
+                    "table": "visits",
+                    "column": col,
+                    "type": ty,
+                    "access": access,
+                    "filterable": filt,
+                    "groupable": grp,
+                    "mechanism": "laplace" if clamp else None,
+                    "lower_clamp": clamp[0] if clamp else None,
+                    "upper_clamp": clamp[1] if clamp else None,
+                    "grants": {r: (r, "visits", col) in grants for r in _ROLES},
+                }
+                for col, ty, access, filt, grp, clamp in _COLUMNS
+            ],
+        }
+
+    def set_grant(
+        self, principal: Principal, role: str, table: str, column: str, granted: bool
+    ) -> None:
+        if "dba" not in principal.roles:
+            raise EngineError("policy", "requires one of the roles: dba")
+        if role not in _ROLES:
+            raise EngineError("catalog", f"unknown role: {role}")
+        if table != "visits" or column not in {c[0] for c in _COLUMNS}:
+            raise EngineError("catalog", f"unknown column: {table}.{column}")
+        with self._lock:
+            (self._grants.add if granted else self._grants.discard)((role, table, column))
