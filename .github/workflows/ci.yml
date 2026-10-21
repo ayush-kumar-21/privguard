@@ -43,6 +43,24 @@ jobs:
           python -m privguard_oracle.dataset --out /tmp/ds-b --seed 42
           diff -r /tmp/ds-a /tmp/ds-b
 
+  # --------------------------------------------------------------- gateway
+  # FastAPI in front of the engine. Tested against the stub engine, so it needs
+  # no database and no Rust build.
+  gateway:
+    name: FastAPI gateway
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Run the gateway test suite
+        run: bash ./run.sh gateway
+
   # ---------------------------------------------------------------- engine
   engine:
     name: Rust engine
