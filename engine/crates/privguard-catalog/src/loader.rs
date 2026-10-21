@@ -310,13 +310,19 @@ fn load_table(cat: &Catalog, def: &TableDef, csv: &Path) -> Result<u64> {
     Ok(n)
 }
 
-/// Load every SafeHealth CSV in `csv_dir` into a fresh catalog directory `catalog_dir`.
-pub fn load_safehealth(csv_dir: &Path, catalog_dir: &Path) -> Result<(Catalog, LoadReport)> {
-    let mut cat = Catalog::create(catalog_dir, "safehealth", 1e-6)?;
+/// A fresh catalog in `dir` holding the SafeHealth schema and policies, with empty tables.
+pub fn create_safehealth_catalog(dir: &Path) -> Result<Catalog> {
+    let mut cat = Catalog::create(dir, "safehealth", 1e-6)?;
     for def in safehealth_tables() {
         cat.add_table(def)?;
     }
     apply_policies(&mut cat)?;
+    Ok(cat)
+}
+
+/// Load every SafeHealth CSV in `csv_dir` into a fresh catalog directory `catalog_dir`.
+pub fn load_safehealth(csv_dir: &Path, catalog_dir: &Path) -> Result<(Catalog, LoadReport)> {
+    let mut cat = create_safehealth_catalog(catalog_dir)?;
 
     let mut report = LoadReport { rows: Vec::new() };
     for name in SAFEHEALTH_TABLES {
