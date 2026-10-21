@@ -6,7 +6,33 @@
 //! Until Phase 4.3 lands the listener, running this reports what is built and
 //! what is not, so `run.bat engine` has something honest to show.
 
+/// `privguardd load <csv_dir> <db_dir>`: load the SafeHealth CSVs into a new catalog directory.
+fn load(csv_dir: &str, db_dir: &str) -> Result<(), privguard_core::Error> {
+    let (_, report) = privguard_catalog::load_safehealth(
+        std::path::Path::new(csv_dir),
+        std::path::Path::new(db_dir),
+    )?;
+    for (table, rows) in report.rows {
+        println!("  {table:<12} {rows:>6} rows");
+    }
+    println!("Catalog written to {db_dir}");
+    Ok(())
+}
+
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("load") {
+        let [_, csv, db] = args.as_slice() else {
+            eprintln!("usage: privguardd load <csv_dir> <db_dir>");
+            std::process::exit(2);
+        };
+        if let Err(e) = load(csv, db) {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     println!("PrivGuard engine v{}", env!("CARGO_PKG_VERSION"));
     println!();
     println!("  page size          {} B", privguard_core::PAGE_SIZE);
