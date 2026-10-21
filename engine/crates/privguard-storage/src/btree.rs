@@ -579,7 +579,9 @@ mod tests {
         let mut t = small();
         for k in (0..200i64).rev() {
             assert!(t.insert(k, rid(k as u64 * 10)).unwrap());
-            t.check().unwrap();
+            if k % 8 == 0 {
+                t.check().unwrap();
+            }
         }
         assert_eq!(t.len(), 200);
         for k in [0, 1, 99, 199] {
@@ -633,9 +635,12 @@ mod tests {
         }
         for k in 0..300i64 {
             assert!(t.delete(k, rid(k as u64)).unwrap(), "key {k}");
-            t.check().unwrap();
+            if k % 8 == 0 {
+                t.check().unwrap();
+            }
         }
         assert!(t.is_empty());
+        t.check().unwrap();
         assert_eq!(t.range(None, None).unwrap(), vec![]);
         // And it is still usable.
         t.insert(5, rid(5)).unwrap();

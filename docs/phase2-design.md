@@ -66,7 +66,7 @@ bootstrap list in `BOOTSTRAP_TABLES` is real; Phase 3 fills them.
 The `Catalog` keeps an in-memory copy and `save()` rewrites the heap files. The catalog is
 tiny and written rarely (load time), so rewrite is simpler than in-place update.
 
-## 4. Loader (`privguard-storage::loader` + `privguard-catalog`)
+## 4. Loader (`privguard-catalog::loader`)
 
 Reads the CSVs written by `oracle/privguard_oracle/dataset.py` (`data/safehealth/*.csv`), creates
 the `SPEC.md` §2.2 tables in the catalog, inserts tuples into `<dir>/<table>.heap` and builds

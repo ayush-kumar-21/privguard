@@ -118,12 +118,12 @@ executor over it. No DP yet — prove the DB internals first.
 - [ ] 2.1 8 KiB slotted page layout, RID addressing, insert/read/delete slots
 - [ ] 2.2 Heap file — page allocation, free-space map, sequential scan
 - [ ] 2.3 CLOCK buffer pool — pin/unpin, dirty tracking, eviction
-- [ ] 2.4 B+ tree index — point lookup, range scan, split/merge
-- [ ] 2.5 Self-hosted catalog persisted in the store itself (`sys_*` tables)
+- [x] 2.4 B+ tree index — point lookup, range scan, split/merge
+- [x] 2.5 Self-hosted catalog persisted in the store itself (`sys_*` tables)
 - [ ] 2.6 Parser & binder over `sqlparser-rs`, resolving against the catalog
-- [ ] 2.7 Logical planner — query → logical operator tree
+- [x] 2.7 Logical planner — query → logical operator tree
 - [ ] 2.8 Volcano physical executor — `Scan`, `Filter`, `Aggregate`, `GroupBy`
-- [ ] 2.9 Loader: synthetic dataset → heap files
+- [x] 2.9 Loader: synthetic dataset → heap files
 - [ ] 2.10 Baseline correctness tests vs. the oracle's non-private aggregates
 
 ---
@@ -134,8 +134,8 @@ Goal: the three core contributions from the blueprint.
 
 - [ ] 3.1 zCDP accounting in Rust, cross-checked against the Python oracle
 - [ ] 3.2 Noise mechanisms — keyed deterministic stream, Laplace / discrete Laplace / Gaussian
-- [ ] 3.3 **Physical DP operators**: `Clamp` → `ContributionBound` → `DPAggregate` → `PartitionSelect`
-- [ ] 3.4 **Budget manager** — hash-chained append-only ledger, reserve → commit/abort (WAL-like)
+- [x] 3.3 **Physical DP operators**: `Clamp` → `ContributionBound` → `DPAggregate` → `PartitionSelect`
+- [x] 3.4 **Budget manager** — hash-chained append-only ledger, reserve → commit/abort (WAL-like)
 - [ ] 3.5 **Privacy rewriter** — query fingerprinting, policy check, noise cache (defeats repeat-and-average)
 - [ ] 3.6 Correlation / predicate-overlap detection
 - [ ] 3.7 Property tests (`proptest`) — budget never over-spends, ledger chain never forks
@@ -148,11 +148,11 @@ Goal: the three core contributions from the blueprint.
 - [ ] 4.1 RBAC — roles, principals, column grants enforced in the binder
 - [ ] 4.2 AES-256-GCM column encryption at the access-method layer
 - [ ] 4.3 pgwire v3 server — startup, auth, simple query, result rows
-- [ ] 4.4 FastAPI gateway — auth (JWT, python-jose, argon2), query endpoint, budget + audit views
+- [x] 4.4 FastAPI gateway — auth (JWT, python-jose, argon2), query endpoint, budget + audit views
 - [ ] 4.5 psycopg3 client path: gateway → engine
 - [ ] 4.6 Frontend: swap CodeMirror → **Monaco** SQL console
 - [ ] 4.7 Frontend: **react-flow** plan viewer
-- [ ] 4.8 Frontend: repoint API client at the FastAPI gateway
+- [x] 4.8 Frontend: repoint API client at the FastAPI gateway
 - [ ] 4.9 Policy admin column × role grid against the new catalog
 
 ---
