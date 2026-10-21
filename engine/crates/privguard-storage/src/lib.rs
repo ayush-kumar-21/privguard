@@ -6,16 +6,20 @@
 //!
 //! Landed in Phase 2 (`IMPLEMENTATION_PLAN.md` §2.1–2.4).
 
+pub mod btree;
 pub mod buffer_pool;
 pub mod heap;
 pub mod page;
 pub mod store;
+pub mod tuple;
 
+pub use btree::BPlusTree;
 pub use buffer_pool::BufferPool;
 pub use heap::HeapFile;
 pub use page::{crc32c, page_checksum, SlottedPage};
 pub use privguard_core::{Rid, PAGE_SIZE};
-pub use store::{MemPageStore, PageBuf, PageId, PageStore};
+pub use store::{FilePageStore, MemPageStore, PageBuf, PageId, PageStore};
+pub use tuple::{decode_row, encode_row};
 
 /// Offsets and sizes of the page header, frozen in `SPEC.md` §5.1.
 ///
