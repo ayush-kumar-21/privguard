@@ -330,3 +330,15 @@ fn a_dp_plan_without_clamp_bounds_is_refused_by_policy() {
     assert_eq!(err.sqlstate().code(), "42501");
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn the_explained_operators_are_the_ones_that_get_built() {
+    let (cat, dir) = golden_catalog();
+    let queries = fixture("queries.json");
+    for q in queries.get("queries").unwrap().as_array().unwrap() {
+        let query = bound(q);
+        let plan = build_dp(&cat, &query, 0.5, b"s").unwrap();
+        assert_eq!(plan.operators, crate::build::dp_operators(&query));
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

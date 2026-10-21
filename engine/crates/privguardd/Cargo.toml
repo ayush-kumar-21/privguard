@@ -6,6 +6,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[lib]
+name = "privguardd"
+path = "src/lib.rs"
+
 [[bin]]
 name = "privguardd"
 path = "src/main.rs"

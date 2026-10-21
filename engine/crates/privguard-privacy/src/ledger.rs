@@ -400,7 +400,13 @@ impl BudgetLedger {
                 Error::engine(format!("ledger entry for unknown account {}", e.account_id))
             })?;
             // Replay for balances; hashes and linkage are checked by `verify` below.
-            acct.apply(&e)?;
+            let index = acct.entries.len();
+            acct.apply(&e).map_err(|err| {
+                Error::engine(format!(
+                    "ledger tampering detected: account {} entry {index}: protocol violation: {err}",
+                    e.account_id
+                ))
+            })?;
             acct.entries.push(e);
         }
         ledger.verify()?;

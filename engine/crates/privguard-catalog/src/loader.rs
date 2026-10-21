@@ -43,7 +43,7 @@ pub fn safehealth_tables() -> Vec<TableDef> {
             col("attending_staff_id", I64),
             col("admit_ts", Timestamp).filterable(),
             col("discharge_ts", Timestamp).filterable(),
-            col("total_charge", F64).filterable(),
+            col("total_charge", F64).nullable().filterable(),
             col("admission_type", Text).filterable().groupable(),
         ],
     );

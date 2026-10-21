@@ -293,3 +293,42 @@ pub fn calibrate(catalog: &Catalog, query: &BoundQuery, rho: f64) -> Result<Cali
     }
     .calibration()
 }
+
+/// The operator names `build_dp` will chain for `query`, without reading any data (for `EXPLAIN`).
+pub fn dp_operators(query: &BoundQuery) -> Vec<PhysicalOp> {
+    let mut ops = vec![PhysicalOp::Scan];
+    if !query.filters.is_empty() {
+        ops.push(PhysicalOp::Filter);
+    }
+    ops.push(PhysicalOp::ContributionBound);
+    if query.column.is_some() {
+        ops.push(PhysicalOp::Clamp);
+    }
+    if query.group_by.is_some() {
+        ops.push(PhysicalOp::PartitionSelect);
+    }
+    ops.push(PhysicalOp::DPAggregate);
+    ops
+}
+
+/// Primary keys (first column) of the rows `query` matches, for overlap detection. Reads data, so
+/// it must run after the budget reservation.
+pub fn matching_row_ids(
+    catalog: &Catalog,
+    query: &BoundQuery,
+) -> Result<std::collections::BTreeSet<i64>> {
+    let table = table_of(catalog, &query.table)?;
+    let preds = compile_filters(table, query)?;
+    let mut src: Box<dyn RowSource> = scan(catalog, table, &preds)?;
+    if !preds.is_empty() {
+        src = Box::new(Filter::new(src, preds));
+    }
+    let mut ids = std::collections::BTreeSet::new();
+    while let Some(row) = src.next_row()? {
+        match row.first() {
+            Some(Value::I64(id)) => ids.insert(*id),
+            _ => return Err(Error::engine("first column must be a non-null i64 key")),
+        };
+    }
+    Ok(ids)
+}
