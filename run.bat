@@ -35,6 +35,7 @@ if /i "%CMD%"=="oracle"  goto :oracle
 if /i "%CMD%"=="data"    goto :data
 
 call :require_docker || exit /b 1
+call :ensure_env || exit /b 1
 
 if /i "%CMD%"=="up"      goto :up
 if /i "%CMD%"=="start"   goto :up
@@ -228,6 +229,19 @@ echo uv was not found. It manages the Python environment for the oracle.
 echo Install it with:  winget install astral-sh.uv
 echo   or see:         https://docs.astral.sh/uv/getting-started/installation/
 exit /b 1
+
+:ensure_env
+rem docker-compose.yml reads its secrets from a git-ignored .env and refuses to start
+rem without them. First run: copy .env.example, replacing every __GENERATE__ with a
+rem fresh random value. An existing .env is never touched.
+if exist ".env" exit /b 0
+if not exist ".env.example" (
+  echo .env is missing and so is .env.example.
+  exit /b 1
+)
+powershell -NoProfile -Command "$rng=[Security.Cryptography.RandomNumberGenerator]::Create(); $out=foreach($l in Get-Content '.env.example'){ while($l.Contains('__GENERATE__')){ $b=New-Object byte[] 36; $rng.GetBytes($b); $v=[Convert]::ToBase64String($b).Replace('+','-').Replace('/','_').TrimEnd('='); $i=$l.IndexOf('__GENERATE__'); $l=$l.Substring(0,$i)+$v+$l.Substring($i+12) }; $l }; [IO.File]::WriteAllLines('.env',[string[]]$out,(New-Object Text.UTF8Encoding($false)))" || exit /b 1
+echo Created .env with freshly generated secrets (git-ignored; never commit it).
+exit /b 0
 
 :require_docker
 docker compose version >nul 2>&1

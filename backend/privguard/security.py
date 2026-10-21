@@ -9,6 +9,7 @@ KNOWN_PLACEHOLDERS = frozenset({
     "change-me-too",
     "dev-insecure-change-me",
     "dev-insecure-change-me-please",
+    "__GENERATE__",  # the unfilled marker in the root .env.example
 })
 
 

@@ -3,6 +3,12 @@
 version = 3
 
 [[package]]
+name = "log"
+version = "0.4.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+
+[[package]]
 name = "privguard-catalog"
 version = "0.1.0"
 dependencies = [
@@ -45,6 +51,7 @@ version = "0.1.0"
 dependencies = [
  "privguard-catalog",
  "privguard-core",
+ "sqlparser",
 ]
 
 [[package]]
@@ -73,4 +80,13 @@ dependencies = [
  "privguard-sql",
  "privguard-storage",
  "privguard-wire",
+]
+
+[[package]]
+name = "sqlparser"
+version = "0.53.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05a528114c392209b3264855ad491fcce534b94a38771b0a0b97a79379275ce8"
+dependencies = [
+ "log",
 ]
