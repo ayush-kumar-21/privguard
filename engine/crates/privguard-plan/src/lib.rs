@@ -14,6 +14,8 @@
 //! Landed in Phase 2.7–2.8 (non-private) and Phase 3.3–3.5 (DP operators and
 //! the rewriter). See `IMPLEMENTATION_PLAN.md`.
 
+pub mod build;
+pub mod exec;
 pub mod logical;
 
 pub use logical::{plan, LogicalPlan};
@@ -127,3 +129,6 @@ mod tests {
         assert!(!plan_is_well_formed(&[]));
     }
 }
+
+#[cfg(test)]
+mod golden_tests;
