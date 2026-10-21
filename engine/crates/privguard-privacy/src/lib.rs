@@ -10,6 +10,11 @@
 //! Phase 3 (see `IMPLEMENTATION_PLAN.md`).
 
 pub mod accounting;
+pub mod fingerprint;
+pub mod policy;
+
+pub use fingerprint::{CanonicalQuery, Literal, Predicate, QueryFingerprint};
+pub use policy::{ColumnPolicy, Mechanism, PrivacyPolicy, TablePolicy};
 
 /// Default privacy parameters, frozen in `SPEC.md` §4.
 pub mod defaults {
