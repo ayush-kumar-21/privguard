@@ -2,12 +2,21 @@
 
 Empirical adversarial evaluation of PrivGuard's differential-privacy defences.
 
-## Scenarios
+## Scenarios & Live Results (Phase 1 — Legacy Django Gateway)
 
-| Attack | Target property | Raw SQL result | PrivGuard result |
+| Attack / Probe | Target property | Raw Postgres (`:55000` / `:5432`) | PrivGuard API (`:55001` / `:8000`) |
 |---|---|---|---|
-| **Differencing attack** | Reconstruct a single individual's value via $Q(D) - Q(D \setminus \{x\})$ | Exact leak | Masked by calibrated DP noise + overlap detection |
-| **Repeat-and-average attack** | Average $N$ identical queries to cancel zero-mean noise | Exact (no noise) | Blocked by deterministic keyed noise + fingerprint memoisation ($\rho = 0$ cache hits return identical draw) |
+| **Differencing attack** ($Q(D) - Q(D \setminus \{x\})$) | Reconstruct outlier visit (`visit_id=453`, `$59,958.90`) | `$59,958.90` (err `$0.00` -> **LEAKED**) | `$-4,027,388.18` (err `$4,087,347.08` -> **MASKED**; `overlap_rows=0` `[HOLE P1-2]`) |
+| **Repeat-and-average** ($N=10$ identical queries) | Cancel zero-mean noise via repeated queries | `$5,736,206.22` (err `$0.00` -> **LEAKED**) | `$7,185,892.08` (err `$1,449,685.86`, `std=$0.00`, `cache_hits=9/9` -> **BLOCKED**) |
+| **Tautology rewrite** ($k=5$ shifted bounds) | Bypass AST-hash memoisation via `total_charge <= 1000000 + k` | `$5,736,206.22` (err `$0.00` -> **LEAKED**) | `std=$2,008,915.55` across `5/5` fresh draws (avg err `$66,225.63` -> **BYPASSES CACHE** `[HOLE P1-3]`) |
+| **REST CRUD read** (`GET /api/visits/`) | Role enforcement on raw clinical tables | `$59,958.90` (`visit_id=453`) | `$59,958.90` (err `$0.00`, `rho=0.0` -> **EXACT LEAK TO `dp_analyst`** `[HOLE P1-1]`) |
+
+## Exposed Holes Logged in `IMPLEMENTATION_PLAN.md`
+
+* **P1-1 (`backend/api/permissions.py`)**: `IsClinicianOrDbaOrReadOnly` permits `SAFE_METHODS` (`GET`) for any authenticated user, allowing a `dp_analyst` (`alice`) to read un-noised rows from `/api/visits/` and `/api/patients/` at $\rho = 0$.
+* **P1-2 (`backend/privacy/service.py`)**: `sys_predicate_overlap` exists in the schema (`backend/audit/models.py`) but is never populated or checked during query execution; high-Jaccard differencing queries (`599/600` rows, $\text{Jaccard} = 0.9983$) execute without overlap warnings or rejection.
+* **P1-3 (`backend/privacy/sql.py`, `backend/privacy/service.py`)**: `QuerySpec.canonical()` hashes syntactic predicates without semantic bound normalisation or overlap detection, allowing tautological `WHERE` rewrites (`total_charge <= 1000001.0`, `1000002.0`, ...) to bypass `SysNoiseCache` and average independent noise draws.
+* **P1-4 (`backend/privacy/sql.py`)**: `_literal_value()` only accepts `exp.Literal` and rejects negative numeric literals (`exp.Neg`, e.g. `WHERE total_charge >= -1.0`) with HTTP 400.
 
 ## Usage
 
@@ -15,6 +24,5 @@ Empirical adversarial evaluation of PrivGuard's differential-privacy defences.
 python attacks/demo.py
 ```
 
-* **Phase 0**: runnable skeleton (`demo.py` stubs).
-* **Phase 1**: live differencing and averaging attacks against raw PostgreSQL vs. the PrivGuard API (`:55001` / `:8000`).
-* **Phase 4**: expanded v2 suite against the Rust engine (budget exhaustion, ledger tampering, SQL injection, JWT forgery).
+* Auto-discovers PostgreSQL on `PRIVGUARD_DB_PORT` (`55000`, fallback `5432`) using a zero-dependency stdlib PostgreSQL v3 wire-protocol (`SCRAM-SHA-256`) client.
+* Auto-discovers the PrivGuard API on `PRIVGUARD_API_URL` (`http://127.0.0.1:55001`, fallback `http://127.0.0.1:8000`).

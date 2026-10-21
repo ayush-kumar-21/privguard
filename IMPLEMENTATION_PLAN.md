@@ -215,3 +215,13 @@ Also fixed, incidentally: the api container's entrypoint called
 `seed_demo --no-input`, a flag that command does not accept, with the error
 swallowed by `2>/dev/null || true` — so the database had never been seeded and
 no demo login worked.
+
+
+## Bug log
+
+| ID | Component | Description | Status |
+|---|---|---|---|
+| **P1-1** | `backend/api/permissions.py` (`IsClinicianOrDbaOrReadOnly`) | `SAFE_METHODS` (`GET`) are permitted for *any* authenticated user, allowing a `dp_analyst` (`alice`) to read un-noised individual rows from `/api/visits/` and `/api/patients/` at $\rho = 0$. Exposed by `attacks/demo.py` (`run_crud_bypass_probe`). | Open (addressed in Phase 3/4 RBAC + Phase 5 Django retirement) |
+| **P1-2** | `backend/privacy/service.py` / `sys_predicate_overlap` | `sys_predicate_overlap` is defined in `backend/audit/models.py` and truncated in `seed_demo`, but `run_private_query()` never populates or checks it. High-Jaccard differencing queries ($Q(D)$ vs $Q(D \setminus \{x\})$, Jaccard $= 599/600 = 0.9983 > 0.8$) execute with `overlap_rows = 0`. Exposed by `attacks/demo.py` (`run_differencing_attack`). | Open (addressed in Task 3.6 predicate-overlap detector) |
+| **P1-3** | `backend/privacy/sql.py` / `SysNoiseCache` | `QuerySpec.canonical()` hashes raw AST filter literals without clamping/domain normalisation or overlap checking. Tautological `WHERE` rewrites (`AND total_charge <= 1000001.0`, `1000002.0`, ...) produce distinct fingerprints, bypassing `SysNoiseCache` memoisation and drawing fresh independent noise on identical row sets. Exposed by `attacks/demo.py` (`run_tautology_averaging_probe`). | Open (addressed in Tasks 3.5/3.6 rewriter + overlap detector) |
+| **P1-4** | `backend/privacy/sql.py` (`_literal_value`) | Negative numeric literals in `WHERE` clauses are parsed by `sqlglot` as `exp.Neg(exp.Literal)` and rejected with HTTP 400 (`unsupported literal`). Rust `privguard-sql` (Task 2.6) handles `UnaryOp::Minus` on numeric literals properly. | Fixed in Rust (`privguard-sql` 2.6); open in legacy Django parser |
