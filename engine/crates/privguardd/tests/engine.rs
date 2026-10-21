@@ -1,0 +1,507 @@
+//! The engine facade end to end: golden dataset -> loader -> heap files -> `Engine::query`.
+//!
+//! Using the oracle's golden secret and principal id 1 means the engine's seed equals the
+//! fixture's seed, so its answers must equal the oracle's committed noisy answers exactly.
+
+use privguard_catalog::load_safehealth;
+use privguard_catalog::{read_sys_rows, write_sys_rows};
+use privguard_core::json::{self, Json};
+use privguard_core::{Error, Value};
+use privguardd::engine::{seed_demo, Engine};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
+
+const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../oracle/tests/golden");
+const GOLDEN_SECRET: &[u8] = b"privguard-golden-secret-v1";
+
+fn temp_dir(tag: &str) -> PathBuf {
+    static N: AtomicU32 = AtomicU32::new(0);
+    let d = std::env::temp_dir().join(format!(
+        "privguard-{tag}-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+fn fixture(name: &str) -> Json {
+    json::parse(&std::fs::read_to_string(format!("{GOLDEN}/{name}")).unwrap()).unwrap()
+}
+
+/// Write the golden dataset as the CSV set the loader reads (`visits` real, the rest empty).
+fn write_csvs(dir: &Path) {
+    let headers = [
+        ("regions", "region_id,region_name,state_code"),
+        ("hospitals", "hospital_id,region_id,hospital_name,bed_count"),
+        ("departments", "dept_id,hospital_id,dept_name,specialty"),
+        ("staff", "staff_id,dept_id,full_name,staff_role,hire_date"),
+        (
+            "patients",
+            "patient_id,region_id,mrn,birth_year,sex,insurance_type,enrolled_at",
+        ),
+        (
+            "diagnoses",
+            "diagnosis_id,visit_id,icd10_code,is_primary,severity",
+        ),
+        (
+            "lab_results",
+            "lab_id,visit_id,test_code,value_num,unit,taken_at",
+        ),
+    ];
+    for (name, header) in headers {
+        std::fs::write(dir.join(format!("{name}.csv")), format!("{header}\n")).unwrap();
+    }
+    let mut visits = String::from(
+        "visit_id,patient_id,dept_id,attending_staff_id,admit_ts,discharge_ts,total_charge,admission_type\n",
+    );
+    for r in fixture("dataset.json").as_array().unwrap() {
+        let f = |k: &str| match r.get(k).unwrap() {
+            Json::Null => String::new(),
+            Json::Str(s) => s.clone(),
+            Json::Num(n, true) => (*n as i64).to_string(),
+            Json::Num(n, false) => format!("{n:?}"),
+            other => panic!("{other:?}"),
+        };
+        let cols = [
+            "visit_id",
+            "patient_id",
+            "dept_id",
+            "attending_staff_id",
+            "admit_ts",
+            "discharge_ts",
+            "total_charge",
+            "admission_type",
+        ];
+        visits.push_str(&cols.map(f).join(","));
+        visits.push('\n');
+    }
+    std::fs::write(dir.join("visits.csv"), visits).unwrap();
+}
+
+/// A loaded database with the demo principals. alice is principal 1.
+fn database() -> PathBuf {
+    let root = temp_dir("engine");
+    let csv = root.join("csv");
+    std::fs::create_dir_all(&csv).unwrap();
+    write_csvs(&csv);
+    let db = root.join("db");
+    load_safehealth(&csv, &db).unwrap();
+    let mut e = Engine::open(&db, GOLDEN_SECRET).unwrap();
+    seed_demo(&mut e).unwrap();
+    db
+}
+
+fn open(db: &Path) -> Engine {
+    Engine::open(db, GOLDEN_SECRET).unwrap()
+}
+
+fn expected(id: &str) -> Json {
+    let f = fixture("queries.json");
+    f.get("queries")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q.get("id").unwrap().as_str() == Some(id))
+        .unwrap()
+        .get("expected")
+        .unwrap()
+        .clone()
+}
+
+const COUNT: &str = "SELECT COUNT(*) FROM visits";
+
+#[test]
+fn answers_equal_the_oracles_committed_noisy_answers() {
+    let db = database();
+    let mut e = open(&db);
+
+    let out = e.query("alice", COUNT, 0.5).unwrap();
+    let want = expected("count_all");
+    assert_eq!(out.status, "executed");
+    assert_eq!(out.mechanism, "discrete_laplace");
+    let want_n = want.get("rows").unwrap().as_array().unwrap()[0]
+        .get("value")
+        .unwrap()
+        .as_i64()
+        .unwrap();
+    assert_eq!(out.rows, vec![vec![Value::I64(want_n)]], "count_all");
+
+    let out = e
+        .query("alice", "SELECT SUM(total_charge) FROM visits", 0.5)
+        .unwrap();
+    let want = expected("sum_all");
+    let want_v = want.get("rows").unwrap().as_array().unwrap()[0]
+        .get("value")
+        .unwrap()
+        .as_f64()
+        .unwrap();
+    let Value::F64(got) = out.rows[0][0] else {
+        panic!()
+    };
+    assert!((got - want_v).abs() <= 1.01e-4, "{got} vs {want_v}");
+
+    let out = e
+        .query(
+            "alice",
+            "SELECT COUNT(*) FROM visits GROUP BY admission_type",
+            0.5,
+        )
+        .unwrap();
+    let want = expected("count_by_admission");
+    assert_eq!(out.mechanism, "gaussian");
+    assert_eq!(
+        out.suppressed_groups as f64,
+        want.get("suppressed_groups").unwrap().as_f64().unwrap()
+    );
+    let want_rows = want.get("rows").unwrap().as_array().unwrap();
+    assert_eq!(out.rows.len(), want_rows.len());
+    for (got, w) in out.rows.iter().zip(want_rows) {
+        assert_eq!(got[0], w.get("admission_type").unwrap().to_value().unwrap());
+    }
+    assert_eq!(
+        out.columns.iter().map(|c| c.0.as_str()).collect::<Vec<_>>(),
+        ["admission_type", "value"]
+    );
+}
+
+#[test]
+fn a_query_is_charged_to_the_ledger_and_a_repeat_is_free() {
+    let db = database();
+    let mut e = open(&db);
+    let first = e.query("alice", COUNT, 0.05).unwrap();
+    assert_eq!(first.status, "executed");
+    assert_eq!(first.rho_charged, 0.05);
+    assert!((first.budget.spent - 0.05).abs() < 1e-12);
+    assert_eq!(first.budget.reserved, 0.0);
+
+    // Same question, different spelling: the stored answer, at zero cost.
+    let again = e
+        .query("alice", "select   count(*)  from VISITS", 0.05)
+        .unwrap();
+    assert_eq!(again.status, "cache_hit");
+    assert_eq!(again.rho_charged, 0.0);
+    assert_eq!(again.epsilon_charged, 0.0);
+    assert_eq!(again.rows, first.rows);
+    assert_eq!(again.budget.spent, first.budget.spent);
+
+    // Even a different rho cannot buy fresh noise for the same question.
+    let pricier = e.query("alice", COUNT, 1.0).unwrap();
+    assert_eq!(pricier.status, "cache_hit");
+    assert_eq!(pricier.rows, first.rows);
+
+    // The chain has exactly one reserve and one commit.
+    let v = e.verify_ledger("alice").unwrap().unwrap();
+    assert!(v.ok);
+    assert_eq!(v.entries, 2);
+}
+
+#[test]
+fn the_cache_is_per_principal() {
+    let db = database();
+    let mut e = open(&db);
+    let a = e.query("alice", COUNT, 0.05).unwrap();
+    let r = e.query("erin", COUNT, 0.05).unwrap();
+    assert_eq!(r.status, "executed");
+    assert_eq!(r.rho_charged, 0.05);
+    assert_eq!(a.rho_charged, 0.05);
+    // Different principal ids seed different noise.
+    assert_ne!(a.rows, r.rows);
+}
+
+#[test]
+fn an_exhausted_budget_is_refused_and_spends_nothing() {
+    let db = database();
+    let mut e = open(&db);
+    e.query("frank", COUNT, 0.15).unwrap(); // frank holds 0.2
+    let err = e
+        .query("frank", "SELECT SUM(total_charge) FROM visits", 0.15)
+        .unwrap_err();
+    assert!(matches!(err, Error::BudgetExhausted(_)), "{err}");
+    assert_eq!(err.sqlstate().code(), "53400");
+    let (_, bal) = e.balance("frank").unwrap().unwrap();
+    assert!((bal.spent - 0.15).abs() < 1e-12);
+    assert_eq!(bal.reserved, 0.0);
+
+    let rows = e.audit_rows("frank").unwrap();
+    assert_eq!(
+        rows.iter()
+            .map(|(_, a)| a.status.as_str())
+            .collect::<Vec<_>>(),
+        ["executed", "rejected_budget"]
+    );
+    assert!(e.verify_ledger("frank").unwrap().unwrap().ok);
+}
+
+#[test]
+fn rbac_refuses_columns_without_a_grant_and_principals_without_an_account() {
+    let db = database();
+    let mut e = open(&db);
+    assert!(e.revoke("dp_analyst", "visits", "dept_id").unwrap());
+    let err = e
+        .query(
+            "alice",
+            "SELECT COUNT(*) FROM visits WHERE dept_id = 1",
+            0.05,
+        )
+        .unwrap_err();
+    assert_eq!(err.sqlstate().code(), "42501");
+    assert!(err.to_string().contains("visits.dept_id"), "{err}");
+
+    // carol is a clinician: no grants on visits, no budget account.
+    assert_eq!(
+        e.query("carol", COUNT, 0.05).unwrap_err().sqlstate().code(),
+        "42501"
+    );
+    // dave is a dba with no account either.
+    assert!(e.query("dave", COUNT, 0.05).is_err());
+    // Neither refusal spent anything for alice.
+    let (_, bal) = e.balance("alice").unwrap().unwrap();
+    assert_eq!(bal.spent, 0.0);
+    let rejected = e
+        .audit_rows("erin")
+        .unwrap()
+        .iter()
+        .filter(|(_, a)| a.status == "rejected_policy")
+        .count();
+    assert_eq!(rejected, 3);
+}
+
+#[test]
+fn binder_errors_use_the_spec_error_classes() {
+    let db = database();
+    let mut e = open(&db);
+    let mut code = |sql: &str| e.query("alice", sql, 0.05).unwrap_err().sqlstate().code();
+    assert_eq!(code("DROP TABLE visits"), "42601");
+    assert_eq!(
+        code("SELECT COUNT(*) FROM visits WHERE dept_id = 1 OR dept_id = 2"),
+        "42601"
+    );
+    assert_eq!(code("SELECT COUNT(*) FROM nowhere"), "42P01");
+    assert_eq!(code("SELECT COUNT(*) FROM patients"), "42501");
+    assert_eq!(
+        code("SELECT COUNT(*) FROM visits WHERE patient_id = 7"),
+        "42501"
+    );
+}
+
+#[test]
+fn rho_must_be_positive_and_bounded() {
+    let db = database();
+    let mut e = open(&db);
+    for rho in [0.0, -1.0, f64::NAN, f64::INFINITY, 5.01] {
+        assert!(e.query("alice", COUNT, rho).is_err(), "{rho}");
+    }
+    assert!(e.query("nobody", COUNT, 0.05).is_err());
+}
+
+#[test]
+fn near_duplicate_questions_are_refused_and_the_hold_is_released() {
+    let db = database();
+    let mut e = open(&db);
+    e.query(
+        "alice",
+        "SELECT COUNT(*) FROM visits WHERE total_charge <= 1000001.0",
+        0.05,
+    )
+    .unwrap();
+    // A tautology that changes the fingerprint but not the rows: the repeat-and-average attack.
+    let err = e
+        .query(
+            "alice",
+            "SELECT COUNT(*) FROM visits WHERE total_charge <= 1000002.0",
+            0.05,
+        )
+        .unwrap_err();
+    assert_eq!(err.sqlstate().code(), "42501");
+    assert!(err.to_string().contains("overlaps"), "{err}");
+
+    let (_, bal) = e.balance("alice").unwrap().unwrap();
+    assert!(
+        (bal.spent - 0.05).abs() < 1e-12,
+        "the refused query spent nothing"
+    );
+    assert_eq!(bal.reserved, 0.0);
+    // Reserve+commit for the first, reserve+abort for the second.
+    let v = e.verify_ledger("alice").unwrap().unwrap();
+    assert!(v.ok);
+    assert_eq!(v.entries, 4);
+}
+
+#[test]
+fn a_differencing_pair_is_refused() {
+    let db = database();
+    let mut e = open(&db);
+    e.query("alice", COUNT, 0.05).unwrap();
+    // visit 1's row is the only one with this exact charge (114.84): Q(D) vs Q(D minus x).
+    let err = e
+        .query(
+            "alice",
+            "SELECT COUNT(*) FROM visits WHERE total_charge <> 114.84",
+            0.05,
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("overlaps"), "{err}");
+}
+
+#[test]
+fn the_same_predicates_with_another_aggregate_are_allowed() {
+    let db = database();
+    let mut e = open(&db);
+    e.query(
+        "alice",
+        "SELECT COUNT(*) FROM visits WHERE dept_id = 1",
+        0.05,
+    )
+    .unwrap();
+    let r = e
+        .query(
+            "alice",
+            "SELECT SUM(total_charge) FROM visits WHERE dept_id = 1",
+            0.05,
+        )
+        .unwrap();
+    assert_eq!(r.status, "executed");
+}
+
+#[test]
+fn state_survives_a_restart() {
+    let db = database();
+    let first = {
+        let mut e = open(&db);
+        e.query("alice", COUNT, 0.05).unwrap()
+    };
+    let mut e = open(&db);
+    let (_, bal) = e.balance("alice").unwrap().unwrap();
+    assert!((bal.spent - 0.05).abs() < 1e-12);
+    // The cache came back too: free, and the very same answer.
+    let again = e.query("alice", COUNT, 0.05).unwrap();
+    assert_eq!(again.status, "cache_hit");
+    assert_eq!(again.rows, first.rows);
+    assert_eq!(e.audit_rows("alice").unwrap().len(), 2);
+    assert!(e.verify_ledger("alice").unwrap().unwrap().ok);
+    // Grants and roles too.
+    assert!(e
+        .grants()
+        .allows(&["dp_analyst".to_string()], "visits", "total_charge"));
+    assert_eq!(e.principal("erin").unwrap().roles, ["auditor"]);
+}
+
+#[test]
+fn a_tampered_ledger_on_disk_stops_the_engine_from_starting() {
+    let db = database();
+    {
+        let mut e = open(&db);
+        e.query("alice", COUNT, 0.05).unwrap();
+        e.query("alice", "SELECT SUM(total_charge) FROM visits", 0.05)
+            .unwrap();
+    }
+    // An attacker with disk access makes the first charge look free.
+    let mut rows = read_sys_rows(&db, "sys_budget_ledger").unwrap();
+    assert!(rows.len() >= 4);
+    rows[0][4] = Value::F64(0.0001); // rho column
+    write_sys_rows(&db, "sys_budget_ledger", &rows).unwrap();
+    let err = Engine::open(&db, GOLDEN_SECRET).err().unwrap();
+    assert!(err.to_string().contains("tampering"), "{err}");
+}
+
+#[test]
+fn explain_describes_the_plan_without_spending() {
+    let db = database();
+    let e = open(&db);
+    let text = e
+        .explain(
+            "alice",
+            "SELECT SUM(total_charge) FROM visits WHERE dept_id = 2 GROUP BY admission_type",
+        )
+        .unwrap();
+    let j = json::parse(&text).unwrap();
+    let ops: Vec<&str> = j
+        .get("physical")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ops,
+        [
+            "Scan",
+            "Filter",
+            "ContributionBound",
+            "Clamp",
+            "PartitionSelect",
+            "DPAggregate"
+        ]
+    );
+    assert_eq!(j.get("mechanism").unwrap().as_str(), Some("gaussian"));
+    assert_eq!(j.get("cached").unwrap(), &Json::Bool(false));
+    let (_, bal) = e.balance("alice").unwrap().unwrap();
+    assert_eq!(bal.spent, 0.0);
+    assert!(e.audit_rows("alice").unwrap().is_empty());
+    // RBAC applies to EXPLAIN too.
+    assert!(e.explain("carol", COUNT).is_err());
+}
+
+#[test]
+fn analysts_see_only_their_own_budget_and_audit_rows() {
+    let db = database();
+    let mut e = open(&db);
+    e.query("alice", COUNT, 0.05).unwrap();
+    e.query("frank", COUNT, 0.05).unwrap();
+    assert_eq!(e.balances("alice").unwrap().len(), 1);
+    assert_eq!(e.balances("erin").unwrap().len(), 3);
+    assert_eq!(e.audit_rows("alice").unwrap().len(), 1);
+    assert_eq!(e.audit_rows("erin").unwrap().len(), 2);
+}
+
+#[test]
+fn the_server_secret_must_be_long_enough() {
+    let db = database();
+    assert!(Engine::open(&db, b"short").is_err());
+}
+
+#[test]
+fn a_reservation_left_dangling_by_a_crash_is_released_on_startup() {
+    use privguard_privacy::ledger::{BudgetLedger, ChargeMeta, LedgerEntry};
+    let db = database();
+    {
+        let mut e = open(&db);
+        e.query("alice", COUNT, 0.05).unwrap();
+    }
+    // Simulate a crash after `reserve` but before `commit`/`abort`.
+    let entries: Vec<LedgerEntry> = read_sys_rows(&db, "sys_budget_ledger")
+        .unwrap()
+        .iter()
+        .map(|r| LedgerEntry::from_row(r).unwrap())
+        .collect();
+    let accounts: Vec<(u64, f64)> = read_sys_rows(&db, "sys_budget_account")
+        .unwrap()
+        .iter()
+        .map(|r| match (&r[0], &r[2]) {
+            (Value::I64(a), Value::F64(t)) => (*a as u64, *t),
+            _ => panic!(),
+        })
+        .collect();
+    let mut ledger = BudgetLedger::restore(&accounts, entries).unwrap();
+    ledger.reserve(1, 9999, 0.1, ChargeMeta::default()).unwrap();
+    let mut rows = Vec::new();
+    for (a, _) in ledger.accounts() {
+        rows.extend(ledger.entries(a).unwrap().iter().map(LedgerEntry::to_row));
+    }
+    write_sys_rows(&db, "sys_budget_ledger", &rows).unwrap();
+
+    let e = open(&db);
+    let (_, bal) = e.balance("alice").unwrap().unwrap();
+    assert_eq!(bal.reserved, 0.0, "the hold was released");
+    assert!((bal.spent - 0.05).abs() < 1e-12);
+    let v = e.verify_ledger("alice").unwrap().unwrap();
+    assert!(v.ok);
+    assert_eq!(
+        v.entries, 4,
+        "reserve, commit, dangling reserve, recovery abort"
+    );
+}
