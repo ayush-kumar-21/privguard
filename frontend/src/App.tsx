@@ -4,6 +4,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AppShell } from './components/app-shell/AppShell'
 import { Mark } from './components/app-shell/Wordmark'
 import { RouteGate } from './components/states/RoleGate'
+import { GATEWAY_MODE } from './lib/backend'
 import { useAuth } from './stores/auth'
 import LoginPage from './routes/login'
 import NotFoundPage from './routes/not-found'
@@ -73,68 +74,74 @@ export default function App() {
           }
         />
 
-        <Route path="data">
-          <Route index element={<Navigate to="/data/patients" replace />} />
-          <Route
-            path="patients"
-            element={
-              <RouteGate roles={['clinician']}>
-                <PatientsPage />
-              </RouteGate>
-            }
-          />
-          <Route
-            path="visits"
-            element={
-              <RouteGate roles={['clinician']}>
-                <VisitsPage />
-              </RouteGate>
-            }
-          />
-          <Route
-            path="diagnoses"
-            element={
-              <RouteGate roles={['clinician']}>
-                <DiagnosesPage />
-              </RouteGate>
-            }
-          />
-          <Route
-            path="labs"
-            element={
-              <RouteGate roles={['clinician']}>
-                <LabsPage />
-              </RouteGate>
-            }
-          />
-        </Route>
+        {!GATEWAY_MODE && (
+          <Route path="data">
+            <Route index element={<Navigate to="/data/patients" replace />} />
+            <Route
+              path="patients"
+              element={
+                <RouteGate roles={['clinician']}>
+                  <PatientsPage />
+                </RouteGate>
+              }
+            />
+            <Route
+              path="visits"
+              element={
+                <RouteGate roles={['clinician']}>
+                  <VisitsPage />
+                </RouteGate>
+              }
+            />
+            <Route
+              path="diagnoses"
+              element={
+                <RouteGate roles={['clinician']}>
+                  <DiagnosesPage />
+                </RouteGate>
+              }
+            />
+            <Route
+              path="labs"
+              element={
+                <RouteGate roles={['clinician']}>
+                  <LabsPage />
+                </RouteGate>
+              }
+            />
+          </Route>
+        )}
 
         <Route path="governance">
           <Route index element={<Navigate to="/governance/audit" replace />} />
-          <Route
-            path="policies"
-            element={
-              <RouteGate roles={['dba']}>
-                <PoliciesPage />
-              </RouteGate>
-            }
-          />
-          <Route
-            path="grants"
-            element={
-              <RouteGate roles={['dba']}>
-                <GrantsPage />
-              </RouteGate>
-            }
-          />
-          <Route
-            path="roles"
-            element={
-              <RouteGate roles={['dba']}>
-                <RolesPage />
-              </RouteGate>
-            }
-          />
+          {!GATEWAY_MODE && (
+            <>
+              <Route
+                path="policies"
+                element={
+                  <RouteGate roles={['dba']}>
+                    <PoliciesPage />
+                  </RouteGate>
+                }
+              />
+              <Route
+                path="grants"
+                element={
+                  <RouteGate roles={['dba']}>
+                    <GrantsPage />
+                  </RouteGate>
+                }
+              />
+              <Route
+                path="roles"
+                element={
+                  <RouteGate roles={['dba']}>
+                    <RolesPage />
+                  </RouteGate>
+                }
+              />
+            </>
+          )}
           <Route
             path="audit"
             element={
