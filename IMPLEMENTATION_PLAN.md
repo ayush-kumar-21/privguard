@@ -20,7 +20,7 @@ Last updated: 2026-09-03
 
 | Suite | Command | Result |
 |---|---|---|
-| DP oracle | `run.bat oracle` | 93 passed |
+| DP oracle | `run.bat oracle` | 138 passed |
 | Rust engine | `run.bat engine` | 43 passed, fmt clean, clippy `-D warnings` clean |
 | Django (legacy) | `run.bat` then browse :8080 | still runs — untouched by the pivot |
 
@@ -167,6 +167,12 @@ Goal: the three core contributions from the blueprint.
 - [ ] 5.6 Demo polish and final README
 
 ---
+
+## Bug log
+
+Bugs found and not yet fixed. Close one by fixing it with a regression test, then tick it here.
+
+- [ ] **P0-2b** 5 high + 2 moderate `npm audit` findings remain after `npm audit fix`. All are build-time and come through `tailwindcss` 3.x (`braces`, `micromatch`, `fast-glob`, `chokidar`, `postcss-nested`); the only fix is the Tailwind 3 -> 4 major upgrade. `npm audit --audit-level=high` in CI stays red until it lands. Found 2026-10-21 (Sugeshkumar).
 
 ## Commands
 

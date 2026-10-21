@@ -4,11 +4,11 @@ services:
     environment:
       POSTGRES_DB: safehealth
       POSTGRES_USER: privguard
-      POSTGRES_PASSWORD: privguard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (copy .env.example)}
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U privguard -d safehealth"]
       interval: 5s
@@ -18,16 +18,17 @@ services:
   api:
     build: ./backend
     environment:
-      DEBUG: "True"
-      SECRET_KEY: dev-insecure-change-me
+      DEBUG: ${DEBUG:-False}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env (copy .env.example)}
+      PRIVGUARD_SERVER_SECRET: ${PRIVGUARD_SERVER_SECRET:?set PRIVGUARD_SERVER_SECRET in .env (copy .env.example)}
       ALLOWED_HOSTS: localhost,127.0.0.1,api
-      DATABASE_URL: postgres://privguard:privguard@db:5432/safehealth
+      DATABASE_URL: postgres://privguard:${POSTGRES_PASSWORD}@db:5432/safehealth
       CORS_ALLOWED_ORIGINS: http://localhost:5173,http://localhost:8080
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     # migrate must succeed; seeding and stat refresh are best-effort (wrapped so a
     # failure is logged but does not stop the server) — and their errors are left
     # on stderr so `docker compose logs api` shows them.
