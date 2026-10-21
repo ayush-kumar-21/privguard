@@ -26,11 +26,18 @@ class Settings:
     demo_password: str = "privguard123"
     #: Origins allowed to call the API from a browser. Empty = same-origin only.
     cors_origins: tuple[str, ...] = ()
+    #: `host:port` of the engine's pgwire listener. Unset = use the canned stub engine.
+    engine_addr: str | None = None
+    engine_secret: str = ""
 
     def __post_init__(self) -> None:
         if len(self.jwt_secret) < MIN_SECRET_LENGTH:
             raise ConfigError(
                 f"PRIVGUARD_GATEWAY_SECRET must be at least {MIN_SECRET_LENGTH} characters"
+            )
+        if self.engine_addr and len(self.engine_secret) < MIN_SECRET_LENGTH:
+            raise ConfigError(
+                f"PRIVGUARD_ENGINE_SECRET must be at least {MIN_SECRET_LENGTH} characters"
             )
 
     @classmethod
@@ -44,4 +51,6 @@ class Settings:
             jwt_secret=secret,
             demo_users=env.get("PRIVGUARD_GATEWAY_DEMO_USERS", "") == "1",
             cors_origins=origins,
+            engine_addr=env.get("PRIVGUARD_ENGINE_ADDR") or None,
+            engine_secret=env.get("PRIVGUARD_ENGINE_SECRET", ""),
         )

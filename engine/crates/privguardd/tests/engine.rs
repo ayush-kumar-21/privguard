@@ -401,3 +401,24 @@ fn a_reservation_left_dangling_by_a_crash_is_released_on_startup() {
         "reserve, commit, dangling reserve, recovery abort"
     );
 }
+
+#[test]
+fn only_a_scalar_count_is_declared_an_integer() {
+    use privguard_core::ColumnType;
+    let db = database();
+    let mut e = open(&db);
+    let scalar = e.query("alice", COUNT, 0.5).unwrap();
+    assert_eq!(scalar.columns, [("value".to_string(), ColumnType::I64)]);
+    let grouped = e
+        .query(
+            "alice",
+            "SELECT COUNT(*) FROM visits GROUP BY admission_type",
+            0.5,
+        )
+        .unwrap();
+    assert_eq!(grouped.columns[1], ("value".to_string(), ColumnType::F64));
+    // Every released cell matches its declared type, or a client would fail to decode the row.
+    for row in &grouped.rows {
+        assert!(matches!(row[1], Value::F64(_)), "{row:?}");
+    }
+}
