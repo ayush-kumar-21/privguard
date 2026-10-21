@@ -73,6 +73,7 @@ pub const SYS_QUERY: Columns = &[
     ("status", Text),
     ("rho", F64),
     ("ts", Timestamp),
+    ("sql_text", Text),
 ];
 pub const SYS_NOISE_CACHE: Columns = &[
     ("fingerprint", Text),

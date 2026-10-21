@@ -193,7 +193,7 @@ fn owner<'a>(
 }
 
 /// Read every row of the bootstrap table `name` from `dir`.
-fn read_sys(dir: &Path, name: &str) -> Result<Vec<Vec<Value>>> {
+pub fn read_sys_rows(dir: &Path, name: &str) -> Result<Vec<Vec<Value>>> {
     let path = dir.join(format!("{name}.heap"));
     if !path.exists() {
         return Err(Error::catalog(format!("{} not found", path.display())));
@@ -204,6 +204,18 @@ fn read_sys(dir: &Path, name: &str) -> Result<Vec<Vec<Value>>> {
         .into_iter()
         .map(|(_, bytes)| decode_row(&types, &bytes))
         .collect()
+}
+
+/// Replace the contents of bootstrap table `name` in `dir` with `rows`.
+pub fn write_sys_rows(dir: &Path, name: &str, rows: &[Vec<Value>]) -> Result<()> {
+    let schema = sys_schema(name)
+        .ok_or_else(|| Error::catalog(format!("{name} is not a bootstrap table")))?;
+    let types = types_of(schema);
+    let mut heap = HeapFile::open(FilePageStore::create(&dir.join(format!("{name}.heap")))?)?;
+    for row in rows {
+        heap.insert(&encode_row(&types, row)?)?;
+    }
+    Ok(())
 }
 
 impl Catalog {
@@ -224,7 +236,7 @@ impl Catalog {
 
     /// Load the catalog previously saved in `dir`.
     pub fn open(dir: &Path) -> Result<Self> {
-        let db = read_sys(dir, "sys_database")?;
+        let db = read_sys_rows(dir, "sys_database")?;
         let db = db
             .first()
             .ok_or_else(|| Error::catalog("sys_database is empty"))?;
@@ -237,7 +249,7 @@ impl Catalog {
         };
 
         let mut by_id: BTreeMap<i64, String> = BTreeMap::new();
-        for r in read_sys(dir, "sys_table")? {
+        for r in read_sys_rows(dir, "sys_table")? {
             let def = TableDef {
                 table_id: int(&r[0])?,
                 name: text(&r[1])?,
@@ -252,7 +264,7 @@ impl Catalog {
             cat.tables.insert(def.name.clone(), def);
         }
 
-        let mut cols = read_sys(dir, "sys_column")?;
+        let mut cols = read_sys_rows(dir, "sys_column")?;
         cols.sort_by_key(|r| (int(&r[0]).unwrap_or(0), int(&r[1]).unwrap_or(0)));
         for r in cols {
             owner(&mut cat.tables, &by_id, &r[0])?
@@ -266,13 +278,13 @@ impl Catalog {
                     groupable: flag(&r[7])?,
                 });
         }
-        for r in read_sys(dir, "sys_table_privacy")? {
+        for r in read_sys_rows(dir, "sys_table_privacy")? {
             owner(&mut cat.tables, &by_id, &r[0])?.privacy = Some(TablePrivacy {
                 max_rows_per_unit: int(&r[1])? as u32,
                 max_groups_per_unit: int(&r[2])? as u32,
             });
         }
-        for r in read_sys(dir, "sys_column_privacy")? {
+        for r in read_sys_rows(dir, "sys_column_privacy")? {
             let clamp = match (&r[3], &r[4]) {
                 (Value::F64(lo), Value::F64(hi)) => Some((*lo, *hi)),
                 _ => None,
