@@ -23,3 +23,5 @@ privguard-plan.workspace = true
 privguard-privacy.workspace = true
 privguard-crypto.workspace = true
 privguard-wire.workspace = true
+
+tokio.workspace = true

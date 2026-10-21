@@ -367,3 +367,24 @@ noised, and the oracle draws its aggregate noise only for surviving groups (from
 `aggregate` stream), so the survivors must be decided before the aggregate is noised for the
 engine to reproduce the oracle bit for bit. No change to what is released: suppressed groups
 are dropped and only counted. Scalar queries have no `PartitionSelect`.
+
+**A2 — wire layer and authentication (Phase 3, 4.3).**
+- *Implementation.* The v3 subset of §8 is implemented directly on `tokio` (codec in
+  `privguard-wire`, server in `privguardd`) rather than through the `pgwire` crate, whose
+  current releases need a newer Rust than the 1.83 CI pins. The protocol surface is unchanged.
+- *Authentication.* §8's "password auth against `sys_principal`" becomes: the gateway
+  authenticates humans (argon2, JWT) and then connects as a trusted service. The startup `user`
+  names the principal acted for (it must exist in `sys_principal`); the cleartext password is the
+  engine service secret (`PRIVGUARD_ENGINE_SECRET`, at least 16 characters, compared in constant
+  time). `sys_principal.password_hash` therefore holds the placeholder `external`. Because the
+  secret speaks for any principal, the listener binds to localhost by default.
+- *Statements.* Besides `SELECT`, the simple-query path accepts `EXPLAIN SELECT ...` (plan as
+  JSON, spends nothing), `SET privguard.rho = <x>` (session spend, default 0.05, at most 5),
+  `SHOW budget | budgets | ledger | queries` (scoped to the caller unless `dba`/`auditor`), and
+  the no-op `BEGIN`/`COMMIT`/`ROLLBACK` that client libraries send. Extended query still answers
+  `0A000`.
+- *Catalog.* `sys_query` gains a trailing `sql_text` column so the audit view can show the query.
+- *Noise cache and ledger persistence.* Answers, ledger entries and the audit log are written to
+  `sys_noise_cache`, `sys_budget_ledger` and `sys_query` after every query. Starting the engine
+  re-verifies the whole chain and aborts reservations a crash left dangling. The predicate-overlap
+  history (`SPEC.md` has no table for it) is in memory only and restarts empty.

@@ -10,6 +10,8 @@
 //!
 //! Landed in Phase 4.3 (`IMPLEMENTATION_PLAN.md`).
 
+pub mod codec;
+
 /// Protocol version 3.0, as sent in the startup message.
 pub const PROTOCOL_VERSION: i32 = 196_608; // (3 << 16) | 0
 
