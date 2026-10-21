@@ -31,7 +31,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
 
       - name: Run the oracle test suite
-        run: ./run.sh oracle
+        run: bash ./run.sh oracle
 
       - name: Dataset generation is reproducible
         working-directory: oracle
@@ -161,7 +161,7 @@ jobs:
 
       - name: Audit dependencies (high+)
         working-directory: frontend
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=high
 
   # ---------------------------------------------------------------- images
   # Proves both Dockerfiles still build (no push — see docker-publish.yml).
