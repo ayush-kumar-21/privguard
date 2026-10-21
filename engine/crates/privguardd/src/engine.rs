@@ -247,6 +247,41 @@ impl Engine {
             });
         }
         self.next_query = self.audit.iter().map(|a| a.query_id).max().unwrap_or(0) + 1;
+
+        // Rebuild the predicate-overlap history from the answers actually released, so a restart
+        // does not hand the analyst a clean slate against the cache that survived it.
+        // ponytail: replays every executed query against the table at startup, O(history x table);
+        // persist the matched row sets instead if startup gets slow.
+        let executed: Vec<(u64, u64, String)> = self
+            .audit
+            .iter()
+            .filter(|a| a.status == "executed")
+            .map(|a| (a.principal_id, a.query_id, a.sql.clone()))
+            .collect();
+        let mut replayed = std::collections::HashSet::new();
+        for (principal, query_id, sql) in executed {
+            // A query that no longer binds (schema changed since) cannot be replayed or re-asked;
+            // say so rather than dropping it silently.
+            let query = match self.bind(&sql) {
+                Ok(q) => q,
+                Err(e) => {
+                    // Class only: the message can quote the analyst's SQL.
+                    eprintln!(
+                        "warning: query {query_id} not replayed into the overlap history ({})",
+                        e.sqlstate().code()
+                    );
+                    continue;
+                }
+            };
+            let key = filter_key(&query);
+            // `record` keeps one row set per (principal, predicate set); do not scan for repeats.
+            if replayed.insert((principal, key.clone())) {
+                // A scan failure means the data is unreadable (e.g. no column key), so the engine
+                // could not serve queries anyway: fail startup rather than run with a blank guard.
+                let matched = matching_row_ids(&self.catalog, &query)?;
+                self.overlap.record(principal, key, matched);
+            }
+        }
         if released > 0 {
             self.persist()?;
         }

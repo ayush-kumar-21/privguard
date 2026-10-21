@@ -18,6 +18,27 @@ Empirical adversarial evaluation of PrivGuard's differential-privacy defences.
 * **P1-3 (`backend/privacy/sql.py`, `backend/privacy/service.py`)**: `QuerySpec.canonical()` hashes syntactic predicates without semantic bound normalisation or overlap detection, allowing tautological `WHERE` rewrites (`total_charge <= 1000001.0`, `1000002.0`, ...) to bypass `SysNoiseCache` and average independent noise draws.
 * **P1-4 (`backend/privacy/sql.py`)**: `_literal_value()` only accepts `exp.Literal` and rejects negative numeric literals (`exp.Neg`, e.g. `WHERE total_charge >= -1.0`) with HTTP 400.
 
+## Attack lab v2 (Phase 4, real engine)
+
+`gateway/tests/test_attacks_engine.py` replays the attacks against `privguardd` through the gateway,
+each against a fresh engine, and runs in CI. Every attack is expected to fail:
+
+| Attack | Defence checked |
+|---|---|
+| Differencing (`Q(D)` minus `Q(D` without a few rows`)`) | overlap detector refuses a near-duplicate predicate set (403), and the refusal costs no budget |
+| Repeat-and-average (15 identical queries) | one answer, one charge; repeats are cache hits |
+| Tautology rewrite (`total_charge <= 1000000 + k`) | same rows, different fingerprint: refused by overlap, so at most one noise draw |
+| Restart, then rewrite (`privguardd/tests/engine.rs`) | overlap history is rebuilt from the audit log, so the rewrite is still refused |
+| Budget exhaustion | the analyst is cut off (429) at the allowance; spent never exceeds total; ledger verifies |
+| SQL injection and non-aggregate SQL (10 forms) | refused with 400/403, no charge, engine unaffected |
+| Quote and comment smuggling | treated as a literal / plain `COUNT(*)`; no widened predicate |
+| Ungranted column, no-budget principal, revoked grant | refused (403), revocation is immediate |
+| JWT forgery (wrong key, edited payload, refresh-as-access) | 401 |
+| Analyst on admin endpoints, cross-principal reads | 403 / own rows only |
+
+Phase 1's `demo.py` above targets the legacy Django stack; the holes it logged (P1-1..P1-3) do not
+exist in the engine path.
+
 ## Usage
 
 ```bash

@@ -209,15 +209,37 @@ pub fn read_sys_rows(dir: &Path, name: &str) -> Result<Vec<Vec<Value>>> {
 }
 
 /// Replace the contents of bootstrap table `name` in `dir` with `rows`.
+///
+/// Atomic: the new contents are written to `<name>.heap.tmp`, fsynced, then renamed over the old
+/// file, so a crash or a failed row leaves the previous table intact. Rewriting in place would
+/// leave a truncated ledger after a crash, and a prefix of a hash chain still verifies, which
+/// would silently refund spent budget and empty the noise cache.
+// ponytail: no directory fsync after the rename, so a power cut right after can still roll back to
+// the previous (complete) table. Add `File::open(dir)?.sync_all()` on unix if that matters.
 pub fn write_sys_rows(dir: &Path, name: &str, rows: &[Vec<Value>]) -> Result<()> {
     let schema = sys_schema(name)
         .ok_or_else(|| Error::catalog(format!("{name} is not a bootstrap table")))?;
     let types = types_of(schema);
-    let mut heap = HeapFile::open(FilePageStore::create(&dir.join(format!("{name}.heap")))?)?;
-    for row in rows {
-        heap.insert(&encode_row(&types, row)?)?;
+    let path = dir.join(format!("{name}.heap"));
+    let tmp = dir.join(format!("{name}.heap.tmp"));
+    let io =
+        |what: &str, e: std::io::Error| Error::engine(format!("{what} {}: {e}", tmp.display()));
+
+    let written = (|| -> Result<()> {
+        let mut heap = HeapFile::open(FilePageStore::create(&tmp)?)?;
+        for row in rows {
+            heap.insert(&encode_row(&types, row)?)?;
+        }
+        Ok(())
+    })();
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
     }
-    Ok(())
+    std::fs::File::open(&tmp)
+        .and_then(|f| f.sync_all())
+        .map_err(|e| io("cannot sync", e))?;
+    std::fs::rename(&tmp, &path).map_err(|e| io("cannot rename", e))
 }
 
 impl Catalog {
