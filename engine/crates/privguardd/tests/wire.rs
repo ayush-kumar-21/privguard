@@ -340,3 +340,64 @@ async fn principals_see_only_their_own_audit_rows() {
     let budgets = erin.query("SHOW budgets").await;
     assert_eq!(budgets.iter().filter(|m| m.0 == b'D').count(), 3);
 }
+
+#[tokio::test]
+async fn the_policy_grid_statements_work_over_the_wire_for_a_dba_only() {
+    let addr = start().await;
+    let mut dave = Client::login(addr, "dave").await;
+
+    let p = dave.query("SHOW policies").await;
+    let rows: Vec<_> = p.iter().filter(|m| m.0 == b'D').map(cells).collect();
+    assert_eq!(rows.len(), 8);
+    let charge = rows
+        .iter()
+        .find(|r| r[1].as_deref() == Some("total_charge"))
+        .unwrap();
+    assert_eq!(charge[3].as_deref(), Some("aggregate_only"));
+    assert_eq!(charge[5].as_deref(), Some("0"));
+    assert_eq!(charge[6].as_deref(), Some("1000"));
+    assert_eq!(charge[7].as_deref(), Some("t"));
+
+    let roles = dave.query("SHOW roles").await;
+    assert_eq!(roles.iter().filter(|m| m.0 == b'D').count(), 4);
+
+    assert_eq!(
+        tags(
+            &dave
+                .query("GRANT SELECT (admit_ts) ON visits TO clinician")
+                .await
+        ),
+        [b'C', b'Z']
+    );
+    let g = dave.query("SHOW grants").await;
+    let granted: Vec<_> = g.iter().filter(|m| m.0 == b'D').map(cells).collect();
+    assert!(granted
+        .iter()
+        .any(|r| r[0].as_deref() == Some("clinician") && r[2].as_deref() == Some("admit_ts")));
+    assert_eq!(
+        tags(
+            &dave
+                .query("REVOKE SELECT (admit_ts) ON visits FROM clinician")
+                .await
+        ),
+        [b'C', b'Z']
+    );
+
+    for bad in [
+        "GRANT ALL ON visits TO clinician",
+        "GRANT SELECT (dept_id) ON visits TO clinician; DROP TABLE x",
+        "GRANT SELECT (dept id) ON visits TO clinician",
+    ] {
+        let r = dave.query(bad).await;
+        assert!(text(&r[0]).contains("C42601"), "{bad}: {}", text(&r[0]));
+    }
+
+    let mut alice = Client::login(addr, "alice").await;
+    for stmt in [
+        "SHOW policies",
+        "GRANT SELECT (dept_id) ON visits TO clinician",
+    ] {
+        let r = alice.query(stmt).await;
+        assert!(text(&r[0]).contains("C42501"), "{stmt}: {}", text(&r[0]));
+    }
+}
