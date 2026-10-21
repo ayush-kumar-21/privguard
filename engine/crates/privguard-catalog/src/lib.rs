@@ -7,6 +7,11 @@
 //!
 //! Landed in Phase 2.5 (`IMPLEMENTATION_PLAN.md`).
 
+pub mod catalog;
+pub mod schema;
+
+pub use catalog::{Catalog, ColumnDef, ColumnPrivacy, TableDef, TablePrivacy};
+
 /// Names of the bootstrap catalog tables, in the order they are created.
 ///
 /// Order matters: `sys_database` must exist before `sys_table` can reference
