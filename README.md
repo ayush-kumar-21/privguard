@@ -110,7 +110,7 @@ Budgets were spent by really running queries through the DP gateway, not by writ
 ```bash
 cd backend && pytest                 # needs PostgreSQL (DATABASE_URL in .env)
 cd frontend && npm run build         # typecheck + production build
-./run.sh oracle                      # DP oracle, 93 tests (uses uv; no host pytest needed)
+./run.sh oracle                      # DP oracle, 138 tests (uses uv; no host pytest needed)
 ```
 
 ## Local development
