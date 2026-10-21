@@ -247,6 +247,24 @@ impl Engine {
             });
         }
         self.next_query = self.audit.iter().map(|a| a.query_id).max().unwrap_or(0) + 1;
+
+        // Rebuild the predicate-overlap history from the answers actually released, so a restart
+        // does not hand the analyst a clean slate against the cache that survived it.
+        // ponytail: replays every executed query against the table at startup, O(history x table);
+        // persist the matched row sets instead if startup gets slow.
+        let executed: Vec<(u64, String)> = self
+            .audit
+            .iter()
+            .filter(|a| a.status == "executed")
+            .map(|a| (a.principal_id, a.sql.clone()))
+            .collect();
+        for (principal, sql) in executed {
+            // A query that no longer binds (schema changed since) cannot be replayed; skip it.
+            if let Ok(query) = self.bind(&sql) {
+                let matched = matching_row_ids(&self.catalog, &query)?;
+                self.overlap.record(principal, filter_key(&query), matched);
+            }
+        }
         if released > 0 {
             self.persist()?;
         }

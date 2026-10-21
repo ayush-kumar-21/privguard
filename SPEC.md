@@ -387,4 +387,21 @@ are dropped and only counted. Scalar queries have no `PartitionSelect`.
 - *Noise cache and ledger persistence.* Answers, ledger entries and the audit log are written to
   `sys_noise_cache`, `sys_budget_ledger` and `sys_query` after every query. Starting the engine
   re-verifies the whole chain and aborts reservations a crash left dangling. The predicate-overlap
-  history (`SPEC.md` has no table for it) is in memory only and restarts empty.
+  history (`SPEC.md` has no table for it) is not stored: since A4 it is rebuilt at startup from the
+  audit log.
+
+
+**A3 — atomic persistence of bootstrap tables (Phase 5, P5-1).** `write_sys_rows` rewrites a
+`sys_*` table by writing `<table>.heap.tmp`, fsyncing it, and renaming it over `<table>.heap`; a
+failed or interrupted rewrite leaves the previous table intact and a stale `.tmp` is overwritten by
+the next write. §1's "a torn write may lose the last page" still applies to data heaps, but not to
+the ledger: truncating it forgave spent budget, because a prefix of a hash chain verifies. The
+directory is not fsynced after the rename, so a power cut can roll back to the previous complete
+table, never to a partial one.
+
+**A4 — the overlap history is rebuilt on startup (Phase 5, P5-2).** The noise cache survives a
+restart, but the predicate-overlap history used to restart empty, so right after a restart a
+tautology rewrite or a near-duplicate predicate set bought a second, independent noise draw for the
+same rows. `Engine::open` now replays every `executed` query in `sys_query` through the binder and
+`matching_row_ids` and records its row set per principal. A query that no longer binds is skipped.
+Cost: startup is O(executed queries x table size).

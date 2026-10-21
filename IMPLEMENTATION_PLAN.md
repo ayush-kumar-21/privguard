@@ -11,11 +11,11 @@ section first, then continue at the first unchecked box.
 
 ## Resume point
 
-> **Done: Phases 0-3 of `TEAM_PLAN.md` (foundations, engine core, integration).**
-> **Next up: Phase 4 (verification and evaluation): criterion benchmarks, proptest, the
-> engine-vs-oracle differential test, attack lab v2.**
+> **Done: Phases 0-4 of `TEAM_PLAN.md`, and most of Phase 5 (bug bash, evaluation).**
+> **Left in Phase 5: 5.5 cutover (retire Django), 5.4 report, 5.6 demo polish, and a repo-wide
+> `/code-review` + `/security-review` pass.**
 
-Last updated: 2026-10-21 (Gourishankar)
+Last updated: 2026-10-21 (Ayush)
 
 The gate demo works: a `SELECT COUNT(*)` from the UI goes gateway -> pgwire -> engine, is charged to
 the hash-chained ledger, and a repeat returns the cached answer at zero cost. To run it:
@@ -122,12 +122,12 @@ Python DP oracle to validate every later Rust change against.
 Goal: a working page-based store with an index, and a **non-private** SQL
 executor over it. No DP yet — prove the DB internals first.
 
-- [ ] 2.1 8 KiB slotted page layout, RID addressing, insert/read/delete slots
-- [ ] 2.2 Heap file — page allocation, free-space map, sequential scan
-- [ ] 2.3 CLOCK buffer pool — pin/unpin, dirty tracking, eviction
+- [x] 2.1 8 KiB slotted page layout, RID addressing, insert/read/delete slots
+- [x] 2.2 Heap file — page allocation, free-space map, sequential scan
+- [x] 2.3 CLOCK buffer pool — pin/unpin, dirty tracking, eviction
 - [x] 2.4 B+ tree index — point lookup, range scan, split/merge
 - [x] 2.5 Self-hosted catalog persisted in the store itself (`sys_*` tables)
-- [ ] 2.6 Parser & binder over `sqlparser-rs`, resolving against the catalog
+- [x] 2.6 Parser & binder over `sqlparser-rs`, resolving against the catalog
 - [x] 2.7 Logical planner — query → logical operator tree
 - [x] 2.8 Volcano physical executor — `Scan`, `Filter`, `Aggregate`, `GroupBy`
 - [x] 2.9 Loader: synthetic dataset → heap files
@@ -139,14 +139,14 @@ executor over it. No DP yet — prove the DB internals first.
 
 Goal: the three core contributions from the blueprint.
 
-- [ ] 3.1 zCDP accounting in Rust, cross-checked against the Python oracle
-- [ ] 3.2 Noise mechanisms — keyed deterministic stream, Laplace / discrete Laplace / Gaussian
+- [x] 3.1 zCDP accounting in Rust, cross-checked against the Python oracle
+- [x] 3.2 Noise mechanisms — keyed deterministic stream, Laplace / discrete Laplace / Gaussian
 - [x] 3.3 **Physical DP operators**: `Clamp` → `ContributionBound` → `DPAggregate` → `PartitionSelect`
 - [x] 3.4 **Budget manager** — hash-chained append-only ledger, reserve → commit/abort (WAL-like)
 - [x] 3.5 **Privacy rewriter** — query fingerprinting, policy check, noise cache (defeats repeat-and-average)
 - [x] 3.6 Correlation / predicate-overlap detection
-- [ ] 3.7 Property tests (`proptest`) — budget never over-spends, ledger chain never forks
-- [ ] 3.8 Differential test: Rust engine vs. Python oracle on identical seeds
+- [x] 3.7 Property tests (`proptest`) — budget never over-spends, ledger chain never forks
+- [x] 3.8 Differential test: Rust engine vs. Python oracle on identical seeds — 1000 random seeded queries, 0 mismatches (`oracle/tests/golden/diff_queries.json`)
 
 ---
 
@@ -166,9 +166,9 @@ Goal: the three core contributions from the blueprint.
 
 ## Phase 5 — WK 12–14 · Evaluation
 
-- [ ] 5.1 `criterion` benchmarks — DP overhead vs. the non-private baseline
-- [ ] 5.2 Utility evaluation — error vs. ρ curves, exported for the paper
-- [ ] 5.3 Attack lab: repeat-and-average demonstrably defeated by the noise cache
+- [x] 5.1 `criterion` benchmarks — DP overhead vs. the non-private baseline
+- [x] 5.2 Utility evaluation — error vs. ρ curves, exported for the paper
+- [x] 5.3 Attack lab: repeat-and-average demonstrably defeated by the noise cache — v2 against the real engine in `gateway/tests/test_attacks_engine.py` (24 tests)
 - [ ] 5.4 Paper / report writing
 - [ ] 5.5 **Cutover** — retire the Django backend, compose runs engine + gateway + ui
 - [ ] 5.6 Demo polish and final README
@@ -180,6 +180,33 @@ Goal: the three core contributions from the blueprint.
 Bugs found and not yet fixed. Close one by fixing it with a regression test, then tick it here.
 
 - [ ] **P0-2b** 5 high + 2 moderate `npm audit` findings remain after `npm audit fix`. All are build-time and come through `tailwindcss` 3.x (`braces`, `micromatch`, `fast-glob`, `chokidar`, `postcss-nested`); the only fix is the Tailwind 3 -> 4 major upgrade. `npm audit --audit-level=high` in CI stays red until it lands. Found 2026-10-21 (Sugeshkumar).
+
+## Phase 4-5 findings (2026-10-21, Ayush)
+
+- **P5-1 FIXED: a crash during a ledger rewrite refunded spent budget.** `write_sys_rows` truncated
+  the table file and then rewrote every row; `Engine::persist` does that to the ledger and noise
+  cache after every query. A crash or a failing row mid-rewrite left a truncated file, and a prefix
+  of a hash chain still verifies, so spent budget was forgiven and the cache emptied (fresh noise to
+  average). It is now write-to-temp, fsync, rename (`SPEC.md` A3). Regression tests:
+  `privguard-catalog/tests/atomic_write.rs`; two of its three fail on the old code.
+- **P5-2 FIXED: a restart reopened the averaging hole.** The noise cache was persisted but the
+  predicate-overlap history was not, so after a restart a tautology rewrite or near-duplicate
+  predicate set got a second independent noise draw for the same rows. `Engine::open` now rebuilds
+  the history from the audit log (`SPEC.md` A4). Regression test:
+  `privguardd/tests/engine.rs::the_overlap_guard_survives_a_restart` (fails on the old code).
+- Differential test (engine vs oracle, 1000 queries), 4 ledger/engine property tests, 12 parser and
+  decoder fuzz properties (100,000 cases each, no panic) and 24 end-to-end attacks: no other defects.
+- Sensitivity bounds re-derived by hand against `SPEC.md` 4.3: COUNT = C, SUM = C*M, grouped =
+  sqrt(G)*C*(M); Laplace at scale D1/sqrt(2*rho) is eps = sqrt(2*rho) pure DP, hence rho-zCDP;
+  Gaussian at sigma = D2/sqrt(2*rho) is exactly rho-zCDP; AVG and grouped queries split rho
+  and compose to the charged total. No divergence from the spec.
+- **Known limitations, not bugs (document in the report):** (1) noise is a continuous inverse-CDF
+  sample over 53-bit uniforms, so the floating-point attack on Laplace (Mironov 2012) is out of
+  scope; (2) budgets are per principal, so two colluding accounts get two independent noise
+  draws and their privacy loss composes; (3) `HeapScan` loads the whole table into memory;
+  (4) rename is not followed by a directory fsync; (5) startup replays every executed query
+  to rebuild the overlap history, O(history x table).
+- Utility curves: `docs/eval/utility_vs_rho.md`. Benchmarks: `docs/eval/benchmarks.md`.
 
 ## Commands
 
@@ -232,3 +259,12 @@ no demo login worked.
 | **P1-2** | `backend/privacy/service.py` / `sys_predicate_overlap` | `sys_predicate_overlap` is defined in `backend/audit/models.py` and truncated in `seed_demo`, but `run_private_query()` never populates or checks it. High-Jaccard differencing queries ($Q(D)$ vs $Q(D \setminus \{x\})$, Jaccard $= 599/600 = 0.9983 > 0.8$) execute with `overlap_rows = 0`. Exposed by `attacks/demo.py` (`run_differencing_attack`). | Fixed in the Rust engine (Phase 3: predicate-overlap detection, `privguard-plan::rewriter`); open in the legacy Django stack |
 | **P1-3** | `backend/privacy/sql.py` / `SysNoiseCache` | `QuerySpec.canonical()` hashes raw AST filter literals without clamping/domain normalisation or overlap checking. Tautological `WHERE` rewrites (`AND total_charge <= 1000001.0`, `1000002.0`, ...) produce distinct fingerprints, bypassing `SysNoiseCache` memoisation and drawing fresh independent noise on identical row sets. Exposed by `attacks/demo.py` (`run_tautology_averaging_probe`). | Fixed in the Rust engine (Phase 3: noise cache and overlap detection refuse the tautology rewrite); open in the legacy Django stack |
 | **P1-4** | `backend/privacy/sql.py` (`_literal_value`) | Negative numeric literals in `WHERE` clauses are parsed by `sqlglot` as `exp.Neg(exp.Literal)` and rejected with HTTP 400 (`unsupported literal`). Rust `privguard-sql` (Task 2.6) handles `UnaryOp::Minus` on numeric literals properly. | Fixed in Rust (`privguard-sql` 2.6); open in legacy Django parser |
+
+**2026-10-21 — Phases 4 and 5 (Ayush), one PR.**
+Added the 1000-query engine-vs-oracle differential test (fixture generated by the oracle, replayed
+by the Rust executor over real heap files; a perturbed-rho mutation makes all 1000 fail, so the
+test can fail). Added proptest properties for the ledger (never over-spends, chain never forks,
+any tampering refused) and for the engine (failed queries cost nothing, repeats are free and
+identical, also after a restart). Fuzzed the page decoder, row decoder, pgwire parsers and SQL
+parser. Attack lab v2 against the real engine. Criterion benchmarks and utility curves. Found and
+fixed P5-1 (non-atomic ledger rewrite) and P5-2 (overlap history lost on restart). Cutover, report and demo polish are still open.

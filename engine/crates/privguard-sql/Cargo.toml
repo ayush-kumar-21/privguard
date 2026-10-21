@@ -10,3 +10,6 @@ license.workspace = true
 privguard-core.workspace = true
 privguard-catalog.workspace = true
 sqlparser.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

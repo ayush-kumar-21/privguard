@@ -25,3 +25,6 @@ privguard-crypto.workspace = true
 privguard-wire.workspace = true
 
 tokio.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

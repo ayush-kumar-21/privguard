@@ -342,3 +342,95 @@ fn the_explained_operators_are_the_ones_that_get_built() {
     }
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// Like `assert_rows`, but returns the first difference instead of panicking, so the
+/// differential test can report every mismatching query in one run.
+fn diff_rows(got: &[Row], want: &[Json], group_col: Option<&str>, tol: f64) -> Result<(), String> {
+    if got.len() != want.len() {
+        return Err(format!("row count {} vs {}", got.len(), want.len()));
+    }
+    for (g, w) in got.iter().zip(want) {
+        if let Some(col) = group_col {
+            let key = w.get(col).unwrap().to_value().unwrap();
+            if g[0] != key {
+                return Err(format!("group key {:?} vs {key:?}", g[0]));
+            }
+        }
+        match (g.last().unwrap(), w.get("value").unwrap()) {
+            (Value::I64(a), Json::Num(b, true)) if *a == *b as i64 => {}
+            (Value::F64(a), Json::Num(b, _)) if close(*a, *b, tol) => {}
+            (a, b) => return Err(format!("value {a:?} vs {b:?}")),
+        }
+    }
+    Ok(())
+}
+
+/// One fixture query through the DP plan; `Err` describes the first divergence from the oracle.
+fn diff_one(cat: &Catalog, q: &Json) -> Result<(), String> {
+    let query = bound(q);
+    let rho = q.get("rho").unwrap().as_f64().unwrap();
+    let seed = hex(q.get("seed_hex").unwrap().as_str().unwrap());
+    let want = q.get("expected").unwrap();
+
+    let mut plan = build_dp(cat, &query, rho, &seed).map_err(|e| format!("plan refused: {e:?}"))?;
+    let rows = plan
+        .source
+        .collect_rows()
+        .map_err(|e| format!("execution failed: {e:?}"))?;
+
+    let mechanism = want.get("mechanism").unwrap().as_str().unwrap();
+    if plan.calibration.mechanism != mechanism {
+        return Err(format!(
+            "mechanism {} vs {mechanism}",
+            plan.calibration.mechanism
+        ));
+    }
+    let scale = want.get("scale").unwrap().as_f64().unwrap();
+    if !close(plan.calibration.scale, scale, 1e-12) {
+        return Err(format!("scale {} vs {scale}", plan.calibration.scale));
+    }
+    let suppressed = plan
+        .suppressed
+        .as_ref()
+        .map_or(0, |c| c.load(Ordering::Relaxed));
+    let want_suppressed = want.get("suppressed_groups").unwrap().as_f64().unwrap();
+    if suppressed as f64 != want_suppressed {
+        return Err(format!("suppressed {suppressed} vs {want_suppressed}"));
+    }
+    diff_rows(
+        &rows,
+        want.get("rows").unwrap().as_array().unwrap(),
+        query.group_by.as_deref(),
+        1.01e-4,
+    )
+}
+
+/// Phase 4.3.8: the engine against the oracle on 1000 random seeded queries, through real
+/// heap and index files. Zero mismatches is the bar; any failure names the queries.
+#[test]
+fn differential_engine_matches_the_oracle_on_a_thousand_random_queries() {
+    let (cat, dir) = golden_catalog();
+    let fixture = fixture("diff_queries.json");
+    let queries = fixture.get("queries").unwrap().as_array().unwrap();
+    assert_eq!(queries.len(), 1000);
+
+    let failures: Vec<String> = queries
+        .iter()
+        .filter_map(|q| {
+            let id = q.get("id").unwrap().as_str().unwrap();
+            diff_one(&cat, q).err().map(|e| format!("{id}: {e}"))
+        })
+        .collect();
+    std::fs::remove_dir_all(dir).unwrap();
+    assert!(
+        failures.is_empty(),
+        "{} of 1000 queries differ from the oracle; first 10:\n{}",
+        failures.len(),
+        failures
+            .iter()
+            .take(10)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}

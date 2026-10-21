@@ -513,3 +513,21 @@ fn only_a_dba_can_change_grants_and_a_change_takes_effect_at_once() {
         .grants()
         .allows(&["dp_analyst".to_string()], "visits", "dept_id"));
 }
+
+#[test]
+fn the_overlap_guard_survives_a_restart() {
+    // The noise cache survives a restart, so the overlap history must too: otherwise a tautology
+    // rewrite right after a restart buys a second, independent noise draw for the same rows.
+    let db = database();
+    let first = "SELECT COUNT(*) FROM visits WHERE total_charge >= 0";
+    let rewrite = "SELECT COUNT(*) FROM visits WHERE total_charge >= 0 AND total_charge <= 1000000";
+    {
+        let mut e = open(&db);
+        e.query("alice", first, 0.5).unwrap();
+    }
+    let mut e = open(&db);
+    let err = e.query("alice", rewrite, 0.5).err().unwrap();
+    assert!(err.to_string().contains("overlaps an earlier one"), "{err}");
+    // Other principals are unaffected: the history is per principal.
+    assert!(e.query("frank", rewrite, 0.05).is_ok());
+}
