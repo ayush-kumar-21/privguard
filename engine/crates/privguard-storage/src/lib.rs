@@ -6,8 +6,10 @@
 //!
 //! Landed in Phase 2 (`IMPLEMENTATION_PLAN.md` §2.1–2.4).
 
+pub mod page;
 pub mod store;
 
+pub use page::{crc32c, page_checksum, SlottedPage};
 pub use privguard_core::{Rid, PAGE_SIZE};
 pub use store::{MemPageStore, PageBuf, PageId, PageStore};
 
