@@ -11,7 +11,9 @@ pub mod catalog;
 pub mod loader;
 pub mod schema;
 
-pub use catalog::{Catalog, ColumnDef, ColumnPrivacy, TableDef, TablePrivacy};
+pub use catalog::{
+    read_sys_rows, write_sys_rows, Catalog, ColumnDef, ColumnPrivacy, TableDef, TablePrivacy,
+};
 pub use loader::{create_safehealth_catalog, load_safehealth, LoadReport};
 
 /// Names of the bootstrap catalog tables, in the order they are created.

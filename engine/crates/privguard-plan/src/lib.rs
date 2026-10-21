@@ -17,6 +17,8 @@
 pub mod build;
 pub mod exec;
 pub mod logical;
+pub mod rbac;
+pub mod rewriter;
 
 pub use logical::{plan, LogicalPlan};
 

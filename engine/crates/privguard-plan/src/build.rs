@@ -274,3 +274,22 @@ pub fn build_dp(catalog: &Catalog, query: &BoundQuery, rho: f64, seed: &[u8]) ->
         operators: ops,
     })
 }
+
+/// Sensitivity, scale and mechanism for `query` at `rho`, computed from policy alone.
+///
+/// Needed before the budget reservation (the ledger records how the charge was calibrated), and
+/// the reservation must precede any read of data, so this touches no storage.
+pub fn calibrate(catalog: &Catalog, query: &BoundQuery, rho: f64) -> Result<Calibration> {
+    let policy = privacy_policy(catalog, query)?;
+    DpAggConfig {
+        agg: agg_kind(query.agg),
+        value: query.column.as_ref().map(|_| 0),
+        group: query.group_by.as_ref().map(|_| 0),
+        table: policy.table,
+        column: policy.column,
+        rho,
+        delta: catalog.default_delta,
+        seed: Vec::new(),
+    }
+    .calibration()
+}
