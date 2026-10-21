@@ -36,9 +36,12 @@ sqlparser = "0.53.0"
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "io-util", "macros", "sync", "time"] }
 aes-gcm = "0.10"
 blake3 = { version = "1.5", features = ["pure"] }
-# Property tests (Phase 3.7). Dev-only; no fork/tempfile features so it stays light.
+# Dev-only. CI builds with Rust 1.83, so these are pinned below the releases whose dependencies
+# need edition 2024 (proptest >= 1.7 via rand_xorshift 0.5, criterion's clap_lex 1.x); Cargo.lock
+# holds clap at 4.5.20. Lift the pins when CI moves past 1.85.
+# Property tests (Phase 3.7); no fork/tempfile features so it stays light.
 criterion = { version = "0.5", default-features = false }
-proptest = { version = "1.5", default-features = false, features = ["std"] }
+proptest = { version = "=1.6.0", default-features = false, features = ["std"] }
 
 [profile.release]
 lto = "thin"
