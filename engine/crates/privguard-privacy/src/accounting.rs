@@ -209,4 +209,58 @@ mod tests {
         assert!(close(eps0_from_rho(0.05), 0.31622776601683794));
         assert!(close(partition_threshold(0.01, 1e-2), 28.6621799529602));
     }
+
+    #[test]
+    #[allow(clippy::approx_constant)]
+    fn golden_fixture_zcdp_grid_matches_python_oracle() {
+        let rho_vectors = [
+            (0.02, 1.0713043539513865, 0.2, 44.73774684840182),
+            (
+                0.25,
+                3.9669221888498383,
+                0.7071067811865476,
+                13.370902956130188,
+            ),
+            (0.5, 5.756521769756932, 1.0, 9.747549369680364),
+            (0.75, 7.1878980788680416, 1.224744871391589, 8.1423441518405),
+            (
+                1.0,
+                8.433844377699677,
+                1.4142135623730951,
+                7.185451478065094,
+            ),
+            (
+                4.0,
+                18.867688755399353,
+                2.8284271247461903,
+                4.092725739032547,
+            ),
+        ];
+        for (rho, want_eps, want_eps0, want_tau) in rho_vectors {
+            assert!(close(eps_from_rho(rho, 1e-6), want_eps));
+            assert!(close(eps0_from_rho(rho), want_eps0));
+            assert!(close(partition_threshold(0.2 * rho, 1e-2), want_tau));
+        }
+
+        let scale_vectors = [
+            (3u32, 5.0, 0.5, 8.660254037844386, 9.682458365518542, 5.0),
+            (3, 5000.0, 0.5, 8660.254037844386, 9682.458365518542, 5000.0),
+            (1, 800.0, 0.5, 800.0, 894.4271909999159, 800.0),
+            (
+                3,
+                5000.0,
+                1.0,
+                8660.254037844386,
+                6846.531968814576,
+                3535.5339059327375,
+            ),
+            (3, 5.0, 0.02, 8.660254037844386, 48.4122918275927, 25.0),
+        ];
+        for (g, d1, rho, want_d2, want_sigma, want_b) in scale_vectors {
+            let d2 = grouped_l2_sensitivity(g, d1);
+            assert!(close(d2, want_d2));
+            assert!(close(sigma_from_rho(d2, 0.8 * rho), want_sigma));
+            assert!(close(laplace_scale_from_rho(d1, rho), want_b));
+        }
+    }
 }

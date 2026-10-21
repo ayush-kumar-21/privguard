@@ -161,7 +161,12 @@ impl QueryFingerprint {
     }
 
     pub fn to_hex(&self) -> String {
-        self.0.iter().map(|b| format!("{b:02x}")).collect()
+        use std::fmt::Write as _;
+        let mut out = String::with_capacity(64);
+        for b in &self.0 {
+            let _ = write!(out, "{b:02x}");
+        }
+        out
     }
 
     pub fn from_hex(s: &str) -> Result<Self> {
