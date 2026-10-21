@@ -104,8 +104,11 @@ therefore needs the survivors known before noising. See `SPEC.md` §10, A1.
 ## 7. Budget ledger (`privguard-privacy::ledger`)
 
 `SPEC.md` §6, one chain per account, `hash = blake3(seq ‖ account_id ‖ query_id ‖ kind ‖
-rho_bits ‖ prev_hash)`. Persisted as an append-only file of fixed-size records; loading
-re-verifies the whole chain and replays balances. Only the fields in the hash formula are
+rho_bits ‖ prev_hash)`, integers big-endian. Entries convert to and from `sys_budget_ledger`
+rows (`LedgerEntry::to_row` / `from_row`); `BudgetLedger::restore` rebuilds balances by
+replaying the entries and re-verifies the whole chain, so loading tampered rows fails. The
+ledger itself is storage-agnostic; writing the rows to the heap file is Phase 3 glue. Only the
+fields in the hash formula are
 covered by the chain; `mechanism`, `sensitivity`, `scale` and `eps_equiv` are advisory
 metadata. Dangling reservations are aborted by `abort_dangling()` at startup instead of a timed
 reaper (there is no clock in the ledger).

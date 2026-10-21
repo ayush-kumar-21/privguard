@@ -360,4 +360,10 @@ reservation is a defect.
 
 ## 10. Amendments
 
-*(none — specification frozen at v1.0)*
+**A1 — physical operator order for grouped queries (Phase 2, 3.3).** The pipeline is
+`Scan → Filter → ContributionBound → Clamp → [PartitionSelect] → DPAggregate`; the Phase 0
+placeholder in `privguard-plan` listed `PartitionSelect` last. §4.5 already says survivors are
+noised, and the oracle draws its aggregate noise only for surviving groups (from the
+`aggregate` stream), so the survivors must be decided before the aggregate is noised for the
+engine to reproduce the oracle bit for bit. No change to what is released: suppressed groups
+are dropped and only counted. Scalar queries have no `PartitionSelect`.
