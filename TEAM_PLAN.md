@@ -140,3 +140,18 @@ Phase 5  bug bash · cutover · report
 If a lane falls behind, Phase 3 slips for everyone, so at each gate cut scope
 (e.g. skip `Monaco`, keep CodeMirror) before extending the schedule. Cut order:
 4.7 plan viewer → 4.6 Monaco → 4.2 encryption → 3.6 overlap detection.
+
+---
+
+## Phase ownership (current allocation)
+
+| Phases | Owner |
+|---|---|
+| 0–1 | Sugeshkumar |
+| 2–3 | Gourishankar |
+| 4–5 | Ayush |
+
+Each owner does **all** the A/B/C rows of their phases. The lane table above describes the
+kind of work, not who does it. Ready-to-paste prompts: [`PROMPTS.md`](PROMPTS.md).
+Phases hand over at their gate: merge to `main`, tick `IMPLEMENTATION_PLAN.md`, update its
+Resume point, tell the next owner.
