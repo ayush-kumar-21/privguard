@@ -20,7 +20,7 @@ Last updated: 2026-09-03
 
 | Suite | Command | Result |
 |---|---|---|
-| DP oracle | `run.bat oracle` | 93 passed |
+| DP oracle | `run.bat oracle` | 138 passed |
 | Rust engine | `run.bat engine` | 43 passed, fmt clean, clippy `-D warnings` clean |
 | Django (legacy) | `run.bat` then browse :8080 | still runs — untouched by the pivot |
 
