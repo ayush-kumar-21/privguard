@@ -422,3 +422,94 @@ fn only_a_scalar_count_is_declared_an_integer() {
         assert!(matches!(row[1], Value::F64(_)), "{row:?}");
     }
 }
+
+#[test]
+fn the_policy_grid_lists_the_fact_table_and_is_dba_or_auditor_only() {
+    use privguard_catalog::AccessMode;
+    let db = database();
+    let e = open(&db);
+    let cols = e.policy_columns("dave").unwrap();
+    assert_eq!(cols.len(), 8);
+    let charge = cols.iter().find(|c| c.column == "total_charge").unwrap();
+    assert_eq!(charge.access, AccessMode::AggregateOnly);
+    assert_eq!(charge.clamp, Some((0.0, 1000.0)));
+    assert_eq!(charge.mechanism.as_deref(), Some("laplace"));
+    assert!(charge.filterable && !charge.groupable);
+    let pid = cols.iter().find(|c| c.column == "patient_id").unwrap();
+    assert_eq!(pid.access, AccessMode::Denied);
+    assert!(e.policy_columns("erin").is_ok(), "auditors may read");
+    assert_eq!(
+        e.policy_columns("alice").unwrap_err().sqlstate().code(),
+        "42501"
+    );
+    assert_eq!(e.roles(), ["auditor", "clinician", "dba", "dp_analyst"]);
+    assert!(e
+        .grant_rows("dave")
+        .unwrap()
+        .iter()
+        .any(|g| g.0 == "dp_analyst" && g.2 == "dept_id"));
+}
+
+#[test]
+fn only_a_dba_can_change_grants_and_a_change_takes_effect_at_once() {
+    let db = database();
+    let mut e = open(&db);
+    let q = "SELECT COUNT(*) FROM visits WHERE dept_id = 1";
+    assert!(e.query("alice", q, 0.05).is_ok());
+
+    assert_eq!(
+        e.revoke_as("alice", "dp_analyst", "visits", "dept_id")
+            .unwrap_err()
+            .sqlstate()
+            .code(),
+        "42501"
+    );
+    assert_eq!(
+        e.grant_as("erin", "clinician", "visits", "dept_id")
+            .unwrap_err()
+            .sqlstate()
+            .code(),
+        "42501"
+    );
+
+    assert!(e
+        .revoke_as("dave", "dp_analyst", "visits", "dept_id")
+        .unwrap());
+    assert!(!e
+        .revoke_as("dave", "dp_analyst", "visits", "dept_id")
+        .unwrap());
+    // A different spelling of the same question, so the cache cannot answer it.
+    let denied = e.query(
+        "alice",
+        "SELECT COUNT(*) FROM visits WHERE dept_id = 2",
+        0.05,
+    );
+    assert_eq!(denied.unwrap_err().sqlstate().code(), "42501");
+
+    e.grant_as("dave", "dp_analyst", "visits", "dept_id")
+        .unwrap();
+    assert!(e
+        .query(
+            "alice",
+            "SELECT COUNT(*) FROM visits WHERE dept_id = 2",
+            0.05
+        )
+        .is_ok());
+
+    assert_eq!(
+        e.grant_as("dave", "nobody", "visits", "dept_id")
+            .unwrap_err()
+            .sqlstate()
+            .code(),
+        "42P01"
+    );
+    assert!(e
+        .grant_as("dave", "dp_analyst", "visits", "no_such_column")
+        .is_err());
+    // Changes are durable.
+    drop(e);
+    let e = open(&db);
+    assert!(e
+        .grants()
+        .allows(&["dp_analyst".to_string()], "visits", "dept_id"));
+}

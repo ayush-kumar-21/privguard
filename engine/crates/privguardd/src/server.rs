@@ -8,7 +8,8 @@
 //!
 //! Statements (simple query protocol only):
 //! `SELECT ...` (a private aggregate), `EXPLAIN SELECT ...`, `SET privguard.rho = <x>`,
-//! `SHOW budget | budgets | ledger | queries`, and the transaction no-ops `BEGIN`/`COMMIT`/
+//! `SHOW budget | budgets | ledger | queries | policies | roles | grants`, `GRANT`/`REVOKE SELECT (col)
+//! ON table TO/FROM role` (dba only), and the transaction no-ops `BEGIN`/`COMMIT`/
 //! `ROLLBACK` that client libraries send on their own.
 
 use crate::engine::{Engine, QueryOutput};
@@ -165,9 +166,54 @@ pub fn execute_statement(
         "commit" | "end" => Ok(Reply::command("COMMIT")),
         "rollback" | "abort" => Ok(Reply::command("ROLLBACK")),
         "show" => show(engine, user, lower["show".len()..].trim()),
+        "grant" => {
+            let (role, table, column) = parse_grant(&lower, false)?;
+            engine.grant_as(user, &role, &table, &column)?;
+            Ok(Reply::command("GRANT"))
+        }
+        "revoke" => {
+            let (role, table, column) = parse_grant(&lower, true)?;
+            engine.revoke_as(user, &role, &table, &column)?;
+            Ok(Reply::command("REVOKE"))
+        }
         _ => Err(Error::parse(format!(
             "unsupported statement: {}",
             word.to_ascii_uppercase()
+        ))),
+    }
+}
+
+/// `GRANT SELECT (col) ON table TO role` / `REVOKE SELECT (col) ON table FROM role`.
+fn parse_grant(stmt: &str, revoke: bool) -> Result<(String, String, String)> {
+    let spaced = stmt.replace(['(', ')'], " ");
+    let t: Vec<&str> = spaced.split_whitespace().collect();
+    let (verb, joiner) = if revoke {
+        ("revoke", "from")
+    } else {
+        ("grant", "to")
+    };
+    let ok_ident = |s: &str| {
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+            && !s.starts_with(|c: char| c.is_ascii_digit())
+    };
+    match t.as_slice() {
+        [v, "select", col, "on", table, j, role]
+            if *v == verb
+                && *j == joiner
+                && [col, table, role].into_iter().all(|s| ok_ident(s)) =>
+        {
+            Ok((
+                (*role).to_string(),
+                (*table).to_string(),
+                (*col).to_string(),
+            ))
+        }
+        _ => Err(Error::parse(format!(
+            "expected {} SELECT (<column>) ON <table> {} <role>",
+            verb.to_ascii_uppercase(),
+            joiner.to_ascii_uppercase()
         ))),
     }
 }
@@ -256,8 +302,61 @@ fn show(engine: &mut Engine, user: &str, what: &str) -> Result<Reply> {
                 rows,
             ))
         }
+        "roles" => {
+            engine.policy_columns(user)?; // same access rule as the grid itself
+            let rows = engine.roles().into_iter().map(|r| vec![some(r)]).collect();
+            Ok(Reply::table(&[("role", OID_TEXT)], rows))
+        }
+        "grants" => {
+            let rows = engine
+                .grant_rows(user)?
+                .into_iter()
+                .map(|(role, table, column)| vec![some(role), some(table), some(column)])
+                .collect();
+            Ok(Reply::table(
+                &[("role", OID_TEXT), ("table_name", OID_TEXT), ("column_name", OID_TEXT)],
+                rows,
+            ))
+        }
+        "policies" => {
+            let rows = engine
+                .policy_columns(user)?
+                .into_iter()
+                .map(|c| {
+                    vec![
+                        some(c.table),
+                        some(c.column),
+                        some(c.col_type),
+                        some(match c.access {
+                            privguard_catalog::AccessMode::Allowed => "allowed",
+                            privguard_catalog::AccessMode::AggregateOnly => "aggregate_only",
+                            privguard_catalog::AccessMode::Denied => "denied",
+                        }),
+                        c.mechanism,
+                        c.clamp.map(|(lo, _)| lo.to_string()),
+                        c.clamp.map(|(_, hi)| hi.to_string()),
+                        some(if c.filterable { "t" } else { "f" }),
+                        some(if c.groupable { "t" } else { "f" }),
+                    ]
+                })
+                .collect();
+            Ok(Reply::table(
+                &[
+                    ("table_name", OID_TEXT),
+                    ("column_name", OID_TEXT),
+                    ("data_type", OID_TEXT),
+                    ("access", OID_TEXT),
+                    ("mechanism", OID_TEXT),
+                    ("lower_clamp", OID_FLOAT8),
+                    ("upper_clamp", OID_FLOAT8),
+                    ("filterable", OID_BOOL),
+                    ("groupable", OID_BOOL),
+                ],
+                rows,
+            ))
+        }
         other => Err(Error::parse(format!(
-            "unsupported SHOW {other}: expected budget, budgets, ledger or queries"
+            "unsupported SHOW {other}: expected budget, budgets, ledger, queries, policies, roles or grants"
         ))),
     }
 }

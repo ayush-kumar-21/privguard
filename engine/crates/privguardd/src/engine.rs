@@ -76,6 +76,19 @@ pub struct QueryOutput {
     pub budget: Balance,
 }
 
+/// One row of the policy grid: a column of the fact table and how analysts may use it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PolicyColumn {
+    pub table: String,
+    pub column: String,
+    pub col_type: ColumnType,
+    pub filterable: bool,
+    pub groupable: bool,
+    pub access: privguard_catalog::AccessMode,
+    pub mechanism: Option<String>,
+    pub clamp: Option<(f64, f64)>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct LedgerVerdict {
     pub ok: bool,
@@ -405,6 +418,80 @@ impl Engine {
         let existed = self.grants.revoke(role, table, column);
         self.persist()?;
         Ok(existed)
+    }
+
+    // ------------------------------------------------------------- policy grid
+
+    fn require_role(&self, actor: &str, roles: &[&str]) -> Result<()> {
+        let p = self
+            .principal(actor)
+            .ok_or_else(|| Error::catalog(format!("unknown principal: {actor}")))?;
+        if p.roles.iter().any(|r| roles.contains(&r.as_str())) {
+            Ok(())
+        } else {
+            Err(Error::policy(format!(
+                "requires one of the roles: {}",
+                roles.join(", ")
+            )))
+        }
+    }
+
+    /// All role names, sorted.
+    pub fn roles(&self) -> Vec<String> {
+        self.role_ids.keys().cloned().collect()
+    }
+
+    /// Every column of the privacy-unit fact table with its policy, for the policy grid.
+    /// Readable by `dba` and `auditor`.
+    pub fn policy_columns(&self, actor: &str) -> Result<Vec<PolicyColumn>> {
+        self.require_role(actor, &["dba", "auditor"])?;
+        let mut out = Vec::new();
+        for t in self.catalog.tables().filter(|t| t.is_fact) {
+            for c in &t.columns {
+                let p = t.column_privacy.get(&c.name);
+                out.push(PolicyColumn {
+                    table: t.name.clone(),
+                    column: c.name.clone(),
+                    col_type: c.col_type,
+                    filterable: c.filterable,
+                    groupable: c.groupable,
+                    access: t.access(&c.name),
+                    mechanism: p.and_then(|p| p.mechanism.clone()),
+                    clamp: p.and_then(|p| p.clamp),
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    /// `(role, table, column)` grants. Readable by `dba` and `auditor`.
+    pub fn grant_rows(&self, actor: &str) -> Result<Vec<(String, String, String)>> {
+        self.require_role(actor, &["dba", "auditor"])?;
+        Ok(self.grants.iter().cloned().collect())
+    }
+
+    /// `GRANT` on behalf of `actor`, who must be a `dba`.
+    pub fn grant_as(&mut self, actor: &str, role: &str, table: &str, column: &str) -> Result<()> {
+        self.require_role(actor, &["dba"])?;
+        if !self.role_ids.contains_key(role) {
+            return Err(Error::catalog(format!("unknown role: {role}")));
+        }
+        self.grant(role, table, column)
+    }
+
+    /// `REVOKE` on behalf of `actor`, who must be a `dba`. Returns whether the grant existed.
+    pub fn revoke_as(
+        &mut self,
+        actor: &str,
+        role: &str,
+        table: &str,
+        column: &str,
+    ) -> Result<bool> {
+        self.require_role(actor, &["dba"])?;
+        if !self.role_ids.contains_key(role) {
+            return Err(Error::catalog(format!("unknown role: {role}")));
+        }
+        self.revoke(role, table, column)
     }
 
     // -------------------------------------------------------------------- queries
