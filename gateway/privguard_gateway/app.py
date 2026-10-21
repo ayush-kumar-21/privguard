@@ -52,6 +52,16 @@ class ExplainBody(BaseModel):
     sql: str = Field(min_length=1, max_length=MAX_SQL_LENGTH)
 
 
+_IDENT = r"^[a-z_][a-z0-9_]*$"
+
+
+class GrantBody(BaseModel):
+    role: str = Field(pattern=_IDENT, max_length=63)
+    table: str = Field(pattern=_IDENT, max_length=63)
+    column: str = Field(pattern=_IDENT, max_length=63)
+    granted: bool
+
+
 class QueryBody(BaseModel):
     db: str = DEFAULT_DB
     sql: str = Field(min_length=1, max_length=MAX_SQL_LENGTH)
@@ -217,6 +227,15 @@ def create_app(
         if verdict is None:
             raise HTTPException(404, "no budget account")
         return verdict
+
+    @app.get("/api/policy/grid/")
+    def policy_grid(principal: Principal = Depends(current_principal)):
+        return engine.policy_grid(principal)
+
+    @app.put("/api/policy/grants/")
+    def set_grant(body: GrantBody, principal: Principal = Depends(current_principal)):
+        engine.set_grant(principal, body.role, body.table, body.column, body.granted)
+        return engine.policy_grid(principal)
 
     # ---------------------------------------------------- paginated views
     def paginate(request: Request, rows: list[dict], page: int) -> dict:

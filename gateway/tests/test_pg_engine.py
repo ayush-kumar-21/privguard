@@ -247,3 +247,27 @@ def test_pg_engine_never_interpolates_sql_into_its_own_statements(engine_port, u
     r = run(client, "alice", "SELECT COUNT(*) FROM visits WHERE admission_type = 'x'; DROP TABLE visits")
     assert r.status_code == 400
     assert PgEngine is not None and PASSWORD
+
+
+def test_the_policy_grid_round_trips_through_the_real_engine(pg_client):
+    dave = auth(pg_client, "dave")
+    body = pg_client.get("/api/policy/grid/", headers=dave).json()
+    assert {"auditor", "clinician", "dba", "dp_analyst"} <= set(body["roles"])
+    cols = {c["column"]: c for c in body["columns"]}
+    assert cols["total_charge"]["upper_clamp"] == 1000.0
+    assert cols["total_charge"]["filterable"] is True
+    assert cols["dept_id"]["grants"]["dp_analyst"] is True
+
+    grant = {"role": "clinician", "table": "visits", "column": "admit_ts"}
+    r = pg_client.put("/api/policy/grants/", headers=dave, json={**grant, "granted": True})
+    assert r.status_code == 200, r.text
+    assert next(c for c in r.json()["columns"] if c["column"] == "admit_ts")["grants"]["clinician"]
+    r = pg_client.put("/api/policy/grants/", headers=dave, json={**grant, "granted": False})
+    assert not next(c for c in r.json()["columns"] if c["column"] == "admit_ts")["grants"]["clinician"]
+
+
+def test_the_real_engine_enforces_who_may_change_grants(pg_client):
+    body = {"role": "dp_analyst", "table": "visits", "column": "dept_id", "granted": False}
+    r = pg_client.put("/api/policy/grants/", headers=auth(pg_client, "alice"), json=body)
+    assert r.status_code == 403
+    assert pg_client.get("/api/policy/grid/", headers=auth(pg_client, "alice")).status_code == 403

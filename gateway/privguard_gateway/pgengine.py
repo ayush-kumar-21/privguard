@@ -13,11 +13,14 @@ text with no parameters, so nothing in it is ever interpolated by us.
 from __future__ import annotations
 
 import json
+import re
 
 import psycopg
 
 from .engine import AuditRow, BudgetView, EngineError, QueryOutcome
 from .store import Principal
+
+_IDENT = re.compile(r"[a-z_][a-z0-9_]*")
 
 #: SQLSTATE -> error class (`SPEC.md` §9).
 _KIND_BY_SQLSTATE = {
@@ -68,6 +71,14 @@ class PgEngine:
         if ": " in message and kind != "engine":
             message = message.split(": ", 1)[1]
         return EngineError(kind, message)
+
+    def _command(self, principal: Principal, sql: str) -> None:
+        """Run a statement that returns no rows (`GRANT`, `REVOKE`)."""
+        with self._connect(principal) as conn:
+            try:
+                conn.execute(sql)
+            except psycopg.Error as e:
+                raise self._translate(e) from e
 
     def _rows(self, principal: Principal, sql: str) -> tuple[list[str], list[tuple]]:
         with self._connect(principal) as conn:
@@ -156,3 +167,41 @@ class PgEngine:
         return json.loads(rows[0][0])
 
 
+
+    # -- policy grid
+    def policy_grid(self, principal: Principal) -> dict:
+        _, roles = self._rows(principal, "SHOW roles")
+        _, cols = self._rows(principal, "SHOW policies")
+        _, grants = self._rows(principal, "SHOW grants")
+        granted = {(r, t, c) for r, t, c in grants}
+        role_names = [r[0] for r in roles]
+        return {
+            "roles": role_names,
+            "columns": [
+                {
+                    "table": table,
+                    "column": column,
+                    "type": ty,
+                    "access": access,
+                    "filterable": filt in ("t", True),
+                    "groupable": grp in ("t", True),
+                    "mechanism": mech,
+                    "lower_clamp": lo,
+                    "upper_clamp": hi,
+                    "grants": {r: (r, table, column) in granted for r in role_names},
+                }
+                for table, column, ty, access, mech, lo, hi, filt, grp in cols
+            ],
+        }
+
+    def set_grant(
+        self, principal: Principal, role: str, table: str, column: str, granted: bool
+    ) -> None:
+        # These names become part of the statement text, so they must be plain identifiers.
+        for name in (role, table, column):
+            if not _IDENT.fullmatch(name):
+                raise EngineError("parse", f"invalid identifier: {name!r}")
+        if granted:
+            self._command(principal, f"GRANT SELECT ({column}) ON {table} TO {role}")
+        else:
+            self._command(principal, f"REVOKE SELECT ({column}) ON {table} FROM {role}")
