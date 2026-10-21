@@ -31,6 +31,7 @@ privguard-plan = { path = "crates/privguard-plan" }
 privguard-privacy = { path = "crates/privguard-privacy" }
 privguard-crypto = { path = "crates/privguard-crypto" }
 privguard-wire = { path = "crates/privguard-wire" }
+sqlparser = "0.53.0"
 
 [profile.release]
 lto = "thin"
