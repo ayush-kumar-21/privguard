@@ -95,7 +95,7 @@ echo Building the Rust engine...
 docker build -t privguard-engine engine || exit /b 1
 echo.
 echo Running the engine test suite...
-docker run --rm privguard-engine || exit /b 1
+docker run --rm -v "%CD%\oracle\tests\golden:/oracle/tests/golden:ro" privguard-engine || exit /b 1
 exit /b 0
 
 rem The oracle is the Python reference implementation the engine is validated
@@ -130,7 +130,7 @@ if not "!RC!"=="0" exit /b !RC!
 echo.
 echo === Rust engine ===
 docker build -t privguard-engine engine || exit /b 1
-docker run --rm privguard-engine || exit /b 1
+docker run --rm -v "%CD%\oracle\tests\golden:/oracle/tests/golden:ro" privguard-engine || exit /b 1
 echo.
 echo All checks passed.
 exit /b 0
