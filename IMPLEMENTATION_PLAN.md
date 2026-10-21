@@ -168,6 +168,12 @@ Goal: the three core contributions from the blueprint.
 
 ---
 
+## Bug log
+
+Bugs found and not yet fixed. Close one by fixing it with a regression test, then tick it here.
+
+- [ ] **P0-2b** 5 high + 2 moderate `npm audit` findings remain after `npm audit fix`. All are build-time and come through `tailwindcss` 3.x (`braces`, `micromatch`, `fast-glob`, `chokidar`, `postcss-nested`); the only fix is the Tailwind 3 -> 4 major upgrade. `npm audit --audit-level=high` in CI stays red until it lands. Found 2026-10-21 (Sugeshkumar).
+
 ## Commands
 
 | Command | Does |
