@@ -6,10 +6,12 @@
 //!
 //! Landed in Phase 2 (`IMPLEMENTATION_PLAN.md` §2.1–2.4).
 
+pub mod buffer_pool;
 pub mod heap;
 pub mod page;
 pub mod store;
 
+pub use buffer_pool::BufferPool;
 pub use heap::HeapFile;
 pub use page::{crc32c, page_checksum, SlottedPage};
 pub use privguard_core::{Rid, PAGE_SIZE};
