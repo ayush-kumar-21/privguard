@@ -163,3 +163,36 @@ export interface TablePrivacy {
   enforce_dp: boolean
   min_partition_rho: number
 }
+
+// --- Policy grid (gateway mode) ---------------------------------------------
+export interface PolicyColumn {
+  table: string
+  column: string
+  type: string
+  access: 'allowed' | 'aggregate_only' | 'denied'
+  filterable: boolean
+  groupable: boolean
+  mechanism: string | null
+  lower_clamp: number | null
+  upper_clamp: number | null
+  /** role name -> may that role reference this column */
+  grants: Record<string, boolean>
+}
+
+export interface PolicyGrid {
+  roles: string[]
+  columns: PolicyColumn[]
+}
+
+// --- Plan viewer (gateway mode) ---------------------------------------------
+export interface PlanExplain {
+  fingerprint: string
+  cached: boolean
+  logical: string[]
+  logical_text: string
+  /** Physical operators in execution order, e.g. Scan, Filter, ContributionBound, ... */
+  physical: string[]
+  mechanism: string
+  sensitivity: number
+  privacy_unit: string
+}
