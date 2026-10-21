@@ -245,7 +245,8 @@ cmd_engine() {
   docker build -t privguard-engine engine
   say ""
   info "Running the engine test suite..."
-  docker run --rm privguard-engine
+  # The golden test reads the oracle fixtures, which are outside the engine build context.
+  docker run --rm -v "$PWD/oracle/tests/golden:/oracle/tests/golden:ro" privguard-engine
 }
 
 cmd_oracle() {

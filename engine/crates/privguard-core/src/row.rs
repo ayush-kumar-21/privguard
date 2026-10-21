@@ -28,6 +28,13 @@ pub trait RowSource {
     }
 }
 
+/// Boxed sources are sources, so operators can be stacked at run time (`Box<dyn RowSource>`).
+impl<T: RowSource + ?Sized> RowSource for Box<T> {
+    fn next_row(&mut self) -> Result<Option<Row>> {
+        (**self).next_row()
+    }
+}
+
 /// In-memory source over a vector of rows.
 #[derive(Debug, Clone)]
 pub struct VecRowSource {

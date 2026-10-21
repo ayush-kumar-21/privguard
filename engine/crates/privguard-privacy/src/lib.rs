@@ -12,6 +12,7 @@
 pub mod accounting;
 pub mod fingerprint;
 pub mod mechanisms;
+pub mod operators;
 pub mod policy;
 
 pub use fingerprint::{CanonicalQuery, Literal, Predicate, QueryFingerprint};
@@ -61,3 +62,6 @@ const _: () = assert!(defaults::MAX_GROUPS_PER_UNIT >= 1);
 
 // A default spend of zero would demand infinite noise on every query.
 const _: () = assert!(defaults::RHO > 0.0);
+
+#[cfg(test)]
+mod golden_tests;
