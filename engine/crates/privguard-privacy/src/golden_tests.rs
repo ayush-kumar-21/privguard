@@ -11,165 +11,40 @@
 
 use crate::operators::*;
 use crate::policy::{ColumnPolicy, Mechanism, TablePolicy};
+use privguard_core::json::{self, Json};
 use privguard_core::{Row, RowSource, Value, VecRowSource};
 use std::sync::atomic::Ordering;
 
-// ------------------------------------------------------------------ tiny JSON
-#[derive(Debug, Clone, PartialEq)]
-enum Json {
-    Null,
-    Bool(bool),
-    /// Value and whether the literal was written as an integer.
-    Num(f64, bool),
-    Str(String),
-    Arr(Vec<Json>),
-    Obj(Vec<(String, Json)>),
+// ---------------------------------------------------------------------- JSON
+/// Panicking accessors: a malformed fixture should fail the test loudly.
+trait JsonExt {
+    fn at(&self, key: &str) -> &Json;
+    fn arr(&self) -> &[Json];
+    fn str(&self) -> &str;
+    fn f64(&self) -> f64;
+    fn val(&self) -> Value;
 }
 
-struct Parser<'a> {
-    b: &'a [u8],
-    i: usize,
-}
-
-impl Parser<'_> {
-    fn ws(&mut self) {
-        while self.i < self.b.len() && self.b[self.i].is_ascii_whitespace() {
-            self.i += 1;
-        }
+impl JsonExt for Json {
+    fn at(&self, key: &str) -> &Json {
+        self.get(key).unwrap_or_else(|| panic!("missing key {key}"))
     }
-
-    fn eat(&mut self, s: &str) -> bool {
-        self.ws();
-        if self.b[self.i..].starts_with(s.as_bytes()) {
-            self.i += s.len();
-            true
-        } else {
-            false
-        }
+    fn arr(&self) -> &[Json] {
+        self.as_array().expect("array")
     }
-
-    fn string(&mut self) -> String {
-        assert!(self.eat("\""));
-        let mut out = Vec::new();
-        loop {
-            let c = self.b[self.i];
-            self.i += 1;
-            match c {
-                b'"' => return String::from_utf8(out).unwrap(),
-                b'\\' => {
-                    let e = self.b[self.i];
-                    self.i += 1;
-                    out.push(match e {
-                        b'n' => b'\n',
-                        b't' => b'\t',
-                        b'r' => b'\r',
-                        other => other,
-                    });
-                }
-                c => out.push(c),
-            }
-        }
+    fn str(&self) -> &str {
+        self.as_str().expect("string")
     }
-
-    fn value(&mut self) -> Json {
-        self.ws();
-        if self.eat("null") {
-            return Json::Null;
-        }
-        if self.eat("true") {
-            return Json::Bool(true);
-        }
-        if self.eat("false") {
-            return Json::Bool(false);
-        }
-        match self.b[self.i] {
-            b'"' => Json::Str(self.string()),
-            b'[' => {
-                self.i += 1;
-                let mut v = Vec::new();
-                if !self.eat("]") {
-                    loop {
-                        v.push(self.value());
-                        if self.eat("]") {
-                            break;
-                        }
-                        assert!(self.eat(","));
-                    }
-                }
-                Json::Arr(v)
-            }
-            b'{' => {
-                self.i += 1;
-                let mut v = Vec::new();
-                if !self.eat("}") {
-                    loop {
-                        self.ws();
-                        let k = self.string();
-                        assert!(self.eat(":"));
-                        v.push((k, self.value()));
-                        if self.eat("}") {
-                            break;
-                        }
-                        assert!(self.eat(","));
-                    }
-                }
-                Json::Obj(v)
-            }
-            _ => {
-                let start = self.i;
-                while self.i < self.b.len() && !b",]} \n\r\t".contains(&self.b[self.i]) {
-                    self.i += 1;
-                }
-                let text = std::str::from_utf8(&self.b[start..self.i]).unwrap();
-                Json::Num(text.parse().unwrap(), !text.contains(['.', 'e', 'E']))
-            }
-        }
+    fn f64(&self) -> f64 {
+        self.as_f64().expect("number")
+    }
+    fn val(&self) -> Value {
+        self.to_value().expect("scalar")
     }
 }
 
 fn parse_json(text: &str) -> Json {
-    Parser {
-        b: text.as_bytes(),
-        i: 0,
-    }
-    .value()
-}
-
-impl Json {
-    fn get(&self, key: &str) -> &Json {
-        match self {
-            Json::Obj(kv) => &kv.iter().find(|(k, _)| k == key).expect(key).1,
-            other => panic!("not an object: {other:?}"),
-        }
-    }
-    fn arr(&self) -> &[Json] {
-        match self {
-            Json::Arr(v) => v,
-            other => panic!("not an array: {other:?}"),
-        }
-    }
-    fn str(&self) -> &str {
-        match self {
-            Json::Str(s) => s,
-            other => panic!("not a string: {other:?}"),
-        }
-    }
-    fn f64(&self) -> f64 {
-        match self {
-            Json::Num(n, _) => *n,
-            other => panic!("not a number: {other:?}"),
-        }
-    }
-    fn to_value(&self) -> Value {
-        match self {
-            Json::Null => Value::Null,
-            Json::Bool(b) => Value::Bool(*b),
-            Json::Num(n, true) => Value::I64(*n as i64),
-            Json::Num(n, false) => Value::F64(*n),
-            Json::Str(s) => Value::Text(s.clone()),
-            other => panic!("not a scalar: {other:?}"),
-        }
-    }
+    json::parse(text).expect("fixture is valid JSON")
 }
 
 fn hex(s: &str) -> Vec<u8> {
@@ -211,7 +86,7 @@ fn dataset() -> Vec<Row> {
     load("dataset.json")
         .arr()
         .iter()
-        .map(|r| COLUMNS.iter().map(|c| r.get(c).to_value()).collect())
+        .map(|r| COLUMNS.iter().map(|c| r.at(c).val()).collect())
         .collect()
 }
 
@@ -219,7 +94,7 @@ fn dataset() -> Vec<Row> {
 fn matches(row: &Row, filter: &Json) -> bool {
     let f = filter.arr();
     let actual = &row[col_index(f[0].str())];
-    let want = f[2].to_value();
+    let want = f[2].val();
     let ord = match (actual, &want) {
         (Value::Null, _) => return false,
         (Value::Text(a), Value::Text(b)) => a.cmp(b),
@@ -248,43 +123,43 @@ struct Outcome {
 
 /// Build and run the physical pipeline for one fixture entry.
 fn run(q: &Json, data: &[Row]) -> Outcome {
-    let agg = match q.get("agg").str() {
+    let agg = match q.at("agg").str() {
         "COUNT" => AggKind::Count,
         "SUM" => AggKind::Sum,
         "AVG" => AggKind::Avg,
         other => panic!("agg {other}"),
     };
-    let group = match q.get("group_by") {
+    let group = match q.at("group_by") {
         Json::Str(g) => Some(col_index(g)),
         _ => None,
     };
-    let value = match q.get("column") {
+    let value = match q.at("column") {
         Json::Str(c) => Some(col_index(c)),
         _ => None,
     };
     let table = TablePolicy::new(
-        q.get("table_policy").get("max_rows_per_unit").f64() as u32,
-        q.get("table_policy").get("max_groups_per_unit").f64() as u32,
+        q.at("table_policy").at("max_rows_per_unit").f64() as u32,
+        q.at("table_policy").at("max_groups_per_unit").f64() as u32,
     )
     .unwrap();
-    let column = match q.get("column_policy") {
+    let column = match q.at("column_policy") {
         Json::Null => None,
         p => Some(
             ColumnPolicy::new(
-                Mechanism::parse(p.get("mechanism").str()).unwrap(),
-                p.get("lower_clamp").f64(),
-                p.get("upper_clamp").f64(),
+                Mechanism::parse(p.at("mechanism").str()).unwrap(),
+                p.at("lower_clamp").f64(),
+                p.at("upper_clamp").f64(),
             )
             .unwrap(),
         ),
     };
-    let rho = q.get("rho").f64();
-    let delta_part = q.get("delta_partition").f64();
-    let seed = hex(q.get("seed_hex").str());
+    let rho = q.at("rho").f64();
+    let delta_part = q.at("delta_partition").f64();
+    let seed = hex(q.at("seed_hex").str());
 
     let filtered: Vec<Row> = data
         .iter()
-        .filter(|r| q.get("filters").arr().iter().all(|f| matches(r, f)))
+        .filter(|r| q.at("filters").arr().iter().all(|f| matches(r, f)))
         .cloned()
         .collect();
 
@@ -321,7 +196,7 @@ fn run(q: &Json, data: &[Row]) -> Outcome {
         table,
         column,
         rho,
-        delta: q.get("delta").f64(),
+        delta: q.at("delta").f64(),
         seed,
     };
     let cal = cfg.calibration().unwrap();
@@ -342,40 +217,40 @@ fn close(a: f64, b: f64, tol: f64) -> bool {
 fn operators_reproduce_every_oracle_golden_answer() {
     let data = dataset();
     let fixture = load("queries.json");
-    let queries = fixture.get("queries").arr();
+    let queries = fixture.at("queries").arr();
     assert_eq!(queries.len(), 20);
 
     for q in queries {
-        let id = q.get("id").str();
-        let want = q.get("expected");
+        let id = q.at("id").str();
+        let want = q.at("expected");
         let got = run(q, &data);
 
         // Calibration metadata.
         let cal = &got.cal;
-        assert_eq!(cal.mechanism, want.get("mechanism").str(), "{id} mechanism");
+        assert_eq!(cal.mechanism, want.at("mechanism").str(), "{id} mechanism");
         assert!(
-            close(cal.sensitivity, want.get("sensitivity").f64(), 1e-12),
+            close(cal.sensitivity, want.at("sensitivity").f64(), 1e-12),
             "{id} sensitivity {} vs {}",
             cal.sensitivity,
-            want.get("sensitivity").f64()
+            want.at("sensitivity").f64()
         );
         assert!(
-            close(cal.scale, want.get("scale").f64(), 1e-12),
+            close(cal.scale, want.at("scale").f64(), 1e-12),
             "{id} scale"
         );
-        assert_eq!(cal.rho_charged, want.get("rho_charged").f64(), "{id} rho");
+        assert_eq!(cal.rho_charged, want.at("rho_charged").f64(), "{id} rho");
         assert!(
-            close(cal.eps_equivalent, want.get("eps_equivalent").f64(), 1e-9),
+            close(cal.eps_equivalent, want.at("eps_equivalent").f64(), 1e-9),
             "{id} eps"
         );
         assert_eq!(
             got.suppressed as f64,
-            want.get("suppressed_groups").f64(),
+            want.at("suppressed_groups").f64(),
             "{id} suppressed groups"
         );
 
         // Released rows.
-        let want_rows = want.get("rows").arr();
+        let want_rows = want.at("rows").arr();
         assert_eq!(got.rows.len(), want_rows.len(), "{id} row count");
         for (g, w) in got.rows.iter().zip(want_rows) {
             let (key, value) = match g.as_slice() {
@@ -384,10 +259,10 @@ fn operators_reproduce_every_oracle_golden_answer() {
                 other => panic!("{id}: unexpected row shape {other:?}"),
             };
             if let Some(k) = key {
-                let group_col = q.get("group_by").str();
-                assert_eq!(*k, w.get(group_col).to_value(), "{id} group key");
+                let group_col = q.at("group_by").str();
+                assert_eq!(*k, w.at(group_col).val(), "{id} group key");
             }
-            let wv = w.get("value");
+            let wv = w.at("value");
             match (value, wv) {
                 (Value::I64(a), Json::Num(b, true)) => assert_eq!(*a, *b as i64, "{id} value"),
                 (Value::F64(a), Json::Num(b, _)) => {
@@ -404,7 +279,7 @@ fn fixtures_exercise_suppression_and_both_bounds() {
     let data = dataset();
     let fixture = load("queries.json");
     let suppressed: u64 = fixture
-        .get("queries")
+        .at("queries")
         .arr()
         .iter()
         .map(|q| run(q, &data).suppressed)

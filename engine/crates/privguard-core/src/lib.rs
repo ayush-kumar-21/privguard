@@ -6,6 +6,7 @@
 //! that addresses a tuple inside a page (§5.1).
 
 pub mod error;
+pub mod json;
 pub mod row;
 pub mod types;
 
