@@ -8,6 +8,7 @@ audit log fills up. Phase 3 replaces it with a psycopg client speaking pgwire to
 """
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 import threading
@@ -20,13 +21,21 @@ from .store import DEMO_PRINCIPALS, Principal
 DELTA = 1e-6
 
 #: Error classes of `SPEC.md` §9, the HTTP status each maps to, and the engine's SQLSTATE.
-HTTP_STATUS = {"parse": 400, "policy": 403, "budget": 429, "catalog": 404, "engine": 500}
+HTTP_STATUS = {
+    "parse": 400,
+    "policy": 403,
+    "budget": 429,
+    "catalog": 404,
+    "engine": 500,
+    "unavailable": 503,
+}
 SQLSTATE = {
     "parse": "42601",
     "policy": "42501",
     "budget": "53400",
     "catalog": "42P01",
     "engine": "XX000",
+    "unavailable": "08006",
 }
 
 
@@ -64,7 +73,7 @@ class AuditRow:
     status: str
     rho_charged: float
     delta_charged: float
-    latency_ms: float
+    latency_ms: float | None
     sql_text: str
     submitted_at: str
 
@@ -92,6 +101,8 @@ class EngineClient(Protocol):
     def verify_ledger(self, principal: Principal) -> dict | None: ...
 
     def audit(self, principal: Principal) -> list[AuditRow]: ...
+
+    def explain(self, principal: Principal, sql: str) -> dict: ...
 
 
 def epsilon_from_rho(rho: float, delta: float = DELTA) -> float:
@@ -128,8 +139,8 @@ def _canonical(sql: str) -> str:
     return re.sub(r"\s+", " ", sql.strip().rstrip(";").strip()).lower()
 
 
-def parse_stub(sql: str) -> tuple[str, str | None]:
-    """Recognise the `SPEC.md` §3 subset. Returns `(aggregate, group_by)`."""
+def parse_stub(sql: str) -> tuple[str, str | None, bool]:
+    """Recognise the `SPEC.md` §3 subset. Returns `(aggregate, group_by, has_where)`."""
     m = _QUERY.match(sql)
     if not m:
         raise EngineError(
@@ -141,7 +152,8 @@ def parse_stub(sql: str) -> tuple[str, str | None]:
     group = m.group("group")
     if agg == "avg" and group:
         raise EngineError("parse", "AVG with GROUP BY is not supported")
-    return agg, group.lower() if group else None
+    has_where = re.search(r"\swhere\s", sql, re.IGNORECASE) is not None
+    return agg, group.lower() if group else None, has_where
 
 
 class StubEngine:
@@ -194,7 +206,7 @@ class StubEngine:
 
     # -- EngineClient
     def query(self, principal: Principal, sql: str, rho: float) -> QueryOutcome:
-        agg, group = parse_stub(sql)
+        agg, group, _ = parse_stub(sql)
         name = principal.username
         with self._lock:
             if name not in self._accounts:
@@ -285,3 +297,25 @@ class StubEngine:
         if principal.is_privileged:
             return rows
         return [r for r in rows if r.principal_name == principal.username]
+
+    def explain(self, principal: Principal, sql: str) -> dict:
+        agg, group, has_where = parse_stub(sql)
+        physical = ["Scan"] + (["Filter"] if has_where else []) + ["ContributionBound"]
+        if agg != "count":
+            physical.append("Clamp")
+        if group:
+            physical.append("PartitionSelect")
+        physical.append("DPAggregate")
+        logical = ["Aggregate"] + (["Filter"] if has_where else []) + ["Scan"]
+        with self._lock:
+            cached = (principal.username, _canonical(sql)) in self._cache
+        return {
+            "fingerprint": hashlib.sha256(_canonical(sql).encode()).hexdigest(),
+            "cached": cached,
+            "logical": logical,
+            "logical_text": "\n".join("  " * i + op for i, op in enumerate(logical)) + "\n",
+            "physical": physical,
+            "mechanism": "gaussian" if group else ("discrete_laplace" if agg == "count" else "laplace"),
+            "sensitivity": 5.0,
+            "privacy_unit": "patient_id",
+        }

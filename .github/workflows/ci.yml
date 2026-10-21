@@ -58,6 +58,13 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
 
+      # The pgwire tests spawn the real daemon and drive it through the HTTP API. Same
+      # toolchain pin as the engine job.
+      - name: Build the engine daemon
+        run: |
+          rustup toolchain install 1.83 --profile minimal
+          cargo +1.83 build -p privguardd --manifest-path engine/Cargo.toml
+
       - name: Run the gateway test suite
         run: bash ./run.sh gateway
 

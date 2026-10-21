@@ -429,7 +429,9 @@ impl Engine {
     }
 
     fn output_columns(&self, q: &BoundQuery) -> Result<Vec<(String, ColumnType)>> {
-        let value_type = if q.agg == Agg::Count {
+        // Only a scalar COUNT is an integer: grouped answers carry Gaussian noise, so they are
+        // fractional even for COUNT.
+        let value_type = if q.agg == Agg::Count && q.group_by.is_none() {
             ColumnType::I64
         } else {
             ColumnType::F64

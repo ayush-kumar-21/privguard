@@ -47,10 +47,25 @@ class RefreshBody(BaseModel):
     refresh: str = Field(min_length=1, max_length=4096)
 
 
+class ExplainBody(BaseModel):
+    db: str = DEFAULT_DB
+    sql: str = Field(min_length=1, max_length=MAX_SQL_LENGTH)
+
+
 class QueryBody(BaseModel):
     db: str = DEFAULT_DB
     sql: str = Field(min_length=1, max_length=MAX_SQL_LENGTH)
     rho: float = Field(default=0.05, gt=0, le=MAX_RHO, allow_inf_nan=False)
+
+
+def build_engine(settings: Settings) -> EngineClient:
+    """The real engine when an address is configured, else the canned stub."""
+    if settings.engine_addr:
+        from .pgengine import PgEngine
+
+        host, _, port = settings.engine_addr.rpartition(":")
+        return PgEngine(host or "127.0.0.1", int(port), settings.engine_secret)
+    return StubEngine()
 
 
 def create_app(
@@ -59,7 +74,7 @@ def create_app(
     users: UserStore | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
-    engine = engine or StubEngine()
+    engine = engine or build_engine(settings)
     if users is None:
         users = (
             UserStore.with_demo_principals(settings.demo_password)
@@ -182,6 +197,11 @@ def create_app(
             "budget": out.budget,
         }
 
+    @app.post("/api/dp/explain/")
+    def dp_explain(body: ExplainBody, principal: Principal = Depends(current_principal)):
+        require_db(body.db)
+        return engine.explain(principal, body.sql)
+
     @app.get("/api/dp/budget/")
     def dp_budget(db: str = DEFAULT_DB, principal: Principal = Depends(current_principal)):
         require_db(db)
@@ -238,7 +258,12 @@ def create_app(
             rows = [r for r in rows if r.status == status]
         if search:
             rows = [r for r in rows if search.lower() in r.sql_text.lower()]
-        rows = sorted(rows, key=lambda r: getattr(r, field), reverse=ordering.startswith("-"))
+        # `None` (a value the engine does not record) sorts first.
+        rows = sorted(
+            rows,
+            key=lambda r: (getattr(r, field) is not None, getattr(r, field) or 0),
+            reverse=ordering.startswith("-"),
+        )
         out = []
         for r in rows:
             d = dict(r.__dict__)
