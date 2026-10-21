@@ -14,6 +14,10 @@
 //! Landed in Phase 2.7–2.8 (non-private) and Phase 3.3–3.5 (DP operators and
 //! the rewriter). See `IMPLEMENTATION_PLAN.md`.
 
+pub mod logical;
+
+pub use logical::{plan, LogicalPlan};
+
 /// Physical operators, in the order they appear in a plan.
 ///
 /// The discriminant order is load-bearing: `plan_is_well_formed` uses it to
