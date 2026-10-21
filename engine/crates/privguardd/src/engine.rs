@@ -265,8 +265,10 @@ impl Engine {
             let query = match self.bind(&sql) {
                 Ok(q) => q,
                 Err(e) => {
+                    // Class only: the message can quote the analyst's SQL.
                     eprintln!(
-                        "warning: query {query_id} not replayed into the overlap history: {e}"
+                        "warning: query {query_id} not replayed into the overlap history ({})",
+                        e.sqlstate().code()
                     );
                     continue;
                 }
