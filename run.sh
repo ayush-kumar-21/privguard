@@ -35,11 +35,37 @@ ok()   { printf '%s\n' "${GREEN}$*${RESET}"; }
 warn() { printf '%s\n' "${YELLOW}$*${RESET}" >&2; }
 die()  { printf '%s\n' "${RED}$*${RESET}" >&2; exit 1; }
 
+# --- secrets -----------------------------------------------------------------
+# docker-compose.yml reads its secrets from a git-ignored .env and refuses to start
+# without them. First run: copy .env.example and fill every __GENERATE__ with a fresh
+# random value. An existing .env is never touched.
+gen_secret() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -base64 48 | tr -d '\n=+/' | cut -c1-48
+  else
+    head -c 96 /dev/urandom | base64 | tr -d '\n=+/' | cut -c1-48
+  fi
+}
+
+ensure_env() {
+  [ -f .env ] && return 0
+  [ -f .env.example ] || die ".env is missing and so is .env.example."
+  : > .env
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    case "$line" in
+      *__GENERATE__*) line="${line//__GENERATE__/$(gen_secret)}" ;;
+    esac
+    printf '%s\n' "$line" >> .env
+  done < .env.example
+  info "Created .env with freshly generated secrets (git-ignored; never commit it)."
+}
+
 # --- compose v2 with a v1 fallback -------------------------------------------
 if docker compose version >/dev/null 2>&1; then
-  compose() { docker compose "$@"; }
+  compose() { ensure_env; docker compose "$@"; }
 elif command -v docker-compose >/dev/null 2>&1; then
-  compose() { docker-compose "$@"; }
+  compose() { ensure_env; docker-compose "$@"; }
 else
   die "Docker Compose was not found. Install Docker Desktop: https://docs.docker.com/get-docker/"
 fi
