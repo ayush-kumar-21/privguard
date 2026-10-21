@@ -86,3 +86,47 @@ class TestViews:
         with connection.cursor() as cur:
             cur.execute(f"SELECT count(*) FROM {view}")  # noqa: S608 - fixed names
             assert cur.fetchone()[0] >= 0
+
+
+class TestCheckConstraintCondition:
+    """P0-4 regression tests: CheckConstraint uses condition= (Django 6.0+) and matches migrations."""
+
+    def test_all_check_constraints_use_condition_kwarg(self):
+        import ast
+        from pathlib import Path
+
+        backend_root = Path(__file__).resolve().parent.parent
+        checked = 0
+        for path in backend_root.rglob("*.py"):
+            if ".venv" in path.parts:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    func_name = (
+                        node.func.id
+                        if isinstance(node.func, ast.Name)
+                        else node.func.attr
+                        if isinstance(node.func, ast.Attribute)
+                        else None
+                    )
+                    if func_name == "CheckConstraint":
+                        kw_names = {kw.arg for kw in node.keywords if kw.arg}
+                        assert "check" not in kw_names, f"{path}:{node.lineno} uses deprecated check="
+                        assert "condition" in kw_names, f"{path}:{node.lineno} missing condition="
+                        checked += 1
+        assert checked >= 20
+
+    def test_migration_state_has_no_unapplied_model_changes(self):
+        from django.apps import apps
+        from django.db.migrations.autodetector import MigrationAutodetector
+        from django.db.migrations.loader import MigrationLoader
+        from django.db.migrations.state import ProjectState
+
+        loader = MigrationLoader(None, ignore_no_migrations=True)
+        autodetector = MigrationAutodetector(
+            loader.project_state(),
+            ProjectState.from_apps(apps),
+        )
+        changes = autodetector.changes(graph=loader.graph)
+        assert changes == {}, f"Unmigrated model changes detected: {changes}"
