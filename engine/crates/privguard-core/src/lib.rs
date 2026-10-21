@@ -6,7 +6,9 @@
 //! that addresses a tuple inside a page (§5.1).
 
 pub mod error;
+pub mod row;
 pub mod types;
 
 pub use error::{Error, Result, SqlState};
+pub use row::{Row, RowSource, VecRowSource};
 pub use types::{ColumnType, Rid, Value, PAGE_SIZE};

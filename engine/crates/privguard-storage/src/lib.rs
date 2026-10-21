@@ -6,7 +6,10 @@
 //!
 //! Landed in Phase 2 (`IMPLEMENTATION_PLAN.md` §2.1–2.4).
 
+pub mod store;
+
 pub use privguard_core::{Rid, PAGE_SIZE};
+pub use store::{MemPageStore, PageBuf, PageId, PageStore};
 
 /// Offsets and sizes of the page header, frozen in `SPEC.md` §5.1.
 ///
