@@ -11,9 +11,9 @@ reference — if engine and oracle disagree, one is wrong, and a test must prove
 
 | Lane | Owner | Owns | Crates / dirs |
 |---|---|---|---|
-| **A — Storage & Engine** | _name_ | pages, heap, buffer pool, B+ tree, catalog, executor, column encryption, pgwire, benchmarks | `privguard-storage`, `-catalog`, `-crypto`, `-wire`, `privguardd` |
-| **B — SQL & Privacy** | _name_ | parser/binder, planner, DP operators, budget ledger, rewriter + noise cache, RBAC | `privguard-sql`, `-plan`, `-privacy`, `oracle/` |
-| **C — Interfaces, Attacks & Quality** | _name_ | bug fixes, attack lab, FastAPI gateway, frontend, CI, utility eval, report | `gateway/`, `frontend/`, `backend/`, `attacks/`, `.github/` |
+| **A — Storage & Engine** | Gourishankar | pages, heap, buffer pool, B+ tree, catalog, executor, column encryption, pgwire, benchmarks | `privguard-storage`, `-catalog`, `-crypto`, `-wire`, `privguardd` |
+| **B — SQL & Privacy** | Ayush | parser/binder, planner, DP operators, budget ledger, rewriter + noise cache, RBAC | `privguard-sql`, `-plan`, `-privacy`, `oracle/` |
+| **C — Interfaces, Attacks & Quality** | Sugeshkumar | bug fixes, attack lab, FastAPI gateway, frontend, CI, utility eval, report | `gateway/`, `frontend/`, `backend/`, `attacks/`, `.github/` |
 
 Lane C looks lightest on Rust but carries the bug-fix and verification load, and
 the demo people actually see. Rotate if it feels unbalanced after Phase 2.
