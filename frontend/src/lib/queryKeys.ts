@@ -22,6 +22,8 @@ export const qk = {
   columnGrants: (params?: ListParams) => ['column-grants', params ?? {}] as const,
   columnPolicies: () => ['column-policies'] as const,
   tablePolicies: () => ['table-policies'] as const,
+  policyGrid: () => ['policy-grid'] as const,
+  explain: (sql: string) => ['explain', sql] as const,
 } as const
 
 /** Resource name -> the key factory used by its list screen. */

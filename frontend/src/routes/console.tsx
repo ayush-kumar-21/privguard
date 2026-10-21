@@ -8,6 +8,7 @@ import {
 } from '@phosphor-icons/react'
 import { useMemo, useState } from 'react'
 
+import { PlanPanel } from '../components/console/PlanPanel'
 import { SqlEditor } from '../components/console/SqlEditor'
 import { RhoBadge } from '../components/privacy/RhoBadge'
 import { RhoMeter } from '../components/privacy/RhoMeter'
@@ -21,6 +22,7 @@ import { Select } from '../components/ui/select'
 import { Table, TBody, TD, TH, THead, TR, TableScroll } from '../components/ui/table'
 import { useBudget } from '../hooks/useBudget'
 import api, { apiError } from '../lib/api'
+import { GATEWAY_MODE } from '../lib/backend'
 import { qk } from '../lib/queryKeys'
 import { eps, metric, ms, rho as fmtRho } from '../lib/format'
 import type { DPQueryResponse } from '../lib/types'
@@ -111,8 +113,10 @@ export default function ConsolePage() {
           <h1 className="text-display text-text">SQL console</h1>
           <p className="mt-1.5 max-w-[64ch] text-body leading-relaxed text-muted">
             Aggregates over
-            <span className="num"> visits</span>. Your SQL is parsed into a validated
-            spec and replayed through the ORM, so it never reaches the database as text.
+            <span className="num"> visits</span>.{' '}
+            {GATEWAY_MODE
+              ? 'Your SQL is bound against the engine catalog and executed by the engine itself; it is never re-emitted as SQL.'
+              : 'Your SQL is parsed into a validated spec and replayed through the ORM, so it never reaches the database as text.'}
           </p>
         </div>
       </header>
@@ -192,6 +196,8 @@ export default function ConsolePage() {
           ) : null}
         </div>
       </div>
+
+      {GATEWAY_MODE ? <PlanPanel sql={sqlText} /> : null}
 
       {/* --- Result -------------------------------------------------------- */}
       {run.isError ? (
