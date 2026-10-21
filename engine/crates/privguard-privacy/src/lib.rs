@@ -11,6 +11,7 @@
 
 pub mod accounting;
 pub mod fingerprint;
+pub mod ledger;
 pub mod mechanisms;
 pub mod operators;
 pub mod policy;

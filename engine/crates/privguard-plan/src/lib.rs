@@ -8,7 +8,7 @@
 //! The physical pipeline is fixed (`SPEC.md` §4):
 //!
 //! ```text
-//! Scan → Filter → ContributionBound → Clamp → DPAggregate → PartitionSelect
+//! Scan → Filter → ContributionBound → Clamp → [PartitionSelect] → DPAggregate
 //! ```
 //!
 //! Landed in Phase 2.7–2.8 (non-private) and Phase 3.3–3.5 (DP operators and
@@ -35,11 +35,12 @@ pub enum PhysicalOp {
     /// Clamp values into the policy's `[lo, hi]`, which is what gives the
     /// aggregate a finite sensitivity at all.
     Clamp,
+    /// DP partition selection — drop groups whose noisy unit count falls below
+    /// τ. `SPEC.md` §4.5. Grouped queries only; runs before the aggregate so
+    /// that only surviving groups are noised (`SPEC.md` §10, A1).
+    PartitionSelect,
     /// The aggregate plus calibrated noise.
     DPAggregate,
-    /// DP partition selection — drop groups whose noisy unit count falls below
-    /// τ. `SPEC.md` §4.5.
-    PartitionSelect,
 }
 
 /// Whether a sequence of operators forms a legal plan.
@@ -47,7 +48,7 @@ pub enum PhysicalOp {
 /// Two rules, both of which are privacy-critical rather than merely tidy:
 /// bounding and clamping must precede aggregation (otherwise the sensitivity
 /// the noise was calibrated against is wrong), and partition selection must
-/// come last (otherwise suppressed groups have already been released).
+/// precede the noised aggregate (the survivors are decided first, then only they are noised).
 pub fn plan_is_well_formed(ops: &[PhysicalOp]) -> bool {
     if ops.first() != Some(&PhysicalOp::Scan) {
         return false;
@@ -82,8 +83,8 @@ mod tests {
             Filter,
             ContributionBound,
             Clamp,
-            DPAggregate,
-            PartitionSelect
+            PartitionSelect,
+            DPAggregate
         ]));
     }
 
@@ -104,8 +105,8 @@ mod tests {
     }
 
     #[test]
-    fn partition_selection_before_aggregation_is_rejected() {
-        assert!(!plan_is_well_formed(&[Scan, PartitionSelect, DPAggregate]));
+    fn partition_selection_after_aggregation_is_rejected() {
+        assert!(!plan_is_well_formed(&[Scan, DPAggregate, PartitionSelect]));
     }
 
     #[test]
