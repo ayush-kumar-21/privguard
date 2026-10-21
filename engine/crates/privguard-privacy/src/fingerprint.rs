@@ -145,6 +145,14 @@ impl CanonicalQuery {
         parts.push(format!("GROUP={}", self.group_by.as_deref().unwrap_or("")));
         Ok(parts.join("|"))
     }
+
+    /// SHA-256 fingerprint of the canonical query string (SPEC.md §4.6).
+    pub fn fingerprint(&self) -> Result<QueryFingerprint> {
+        let canon = self.canonical()?;
+        Ok(QueryFingerprint::from_digest(crate::mechanisms::sha256(
+            canon.as_bytes(),
+        )))
+    }
 }
 
 /// A 32-byte SHA-256 query fingerprint.

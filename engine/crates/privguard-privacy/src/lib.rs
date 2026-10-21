@@ -11,9 +11,13 @@
 
 pub mod accounting;
 pub mod fingerprint;
+pub mod mechanisms;
 pub mod policy;
 
 pub use fingerprint::{CanonicalQuery, Literal, Predicate, QueryFingerprint};
+pub use mechanisms::{
+    clamp, derive_seed, discrete_laplace, gaussian, laplace, sha256, KeyedRandom,
+};
 pub use policy::{ColumnPolicy, Mechanism, PrivacyPolicy, TablePolicy};
 
 /// Default privacy parameters, frozen in `SPEC.md` §4.
