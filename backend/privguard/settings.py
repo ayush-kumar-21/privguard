@@ -18,7 +18,7 @@ env = environ.Env(
     DEBUG=(bool, False),
     SECRET_KEY=(str, "dev-insecure-change-me"),
     ALLOWED_HOSTS=(list, ["localhost", "127.0.0.1"]),
-    CORS_ALLOWED_ORIGINS=(list, ["http://localhost:5173"]),
+    CORS_ALLOWED_ORIGINS=(list, ["http://localhost:5173", "http://localhost:8080"]),
 )
 # Load backend/.env if present (never commit real secrets — see .gitignore).
 environ.Env.read_env(BASE_DIR / ".env")
