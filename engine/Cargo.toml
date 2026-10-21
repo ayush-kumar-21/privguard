@@ -34,6 +34,7 @@ privguard-wire = { path = "crates/privguard-wire" }
 sqlparser = "0.53.0"
 # "pure": no C compiler needed; the ledger hashes a few dozen bytes per entry.
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "io-util", "macros", "sync", "time"] }
+aes-gcm = "0.10"
 blake3 = { version = "1.5", features = ["pure"] }
 
 [profile.release]

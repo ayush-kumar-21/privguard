@@ -7,6 +7,7 @@
 use crate::schema::{sys_schema, types_of};
 use crate::{AccessMode, BOOTSTRAP_TABLES};
 use privguard_core::{ColumnType, Error, Result, Value};
+use privguard_crypto::{Keyring, TableCipher};
 use privguard_storage::{decode_row, encode_row, FilePageStore, HeapFile};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -119,6 +120,7 @@ pub struct Catalog {
     pub default_delta: f64,
     tables: BTreeMap<String, TableDef>,
     next_table_id: i64,
+    keyring: Option<Keyring>,
 }
 
 fn parse_type(s: &str) -> Result<ColumnType> {
@@ -229,6 +231,7 @@ impl Catalog {
             default_delta,
             tables: BTreeMap::new(),
             next_table_id: 1,
+            keyring: None,
         };
         cat.save()?;
         Ok(cat)
@@ -246,6 +249,7 @@ impl Catalog {
             default_delta: float(&db[1])?,
             tables: BTreeMap::new(),
             next_table_id: 1,
+            keyring: None,
         };
 
         let mut by_id: BTreeMap<i64, String> = BTreeMap::new();
@@ -303,6 +307,34 @@ impl Catalog {
                 .insert(text(&r[1])?, privacy);
         }
         Ok(cat)
+    }
+
+    /// Provide the column-encryption key (`SPEC.md` §5.5). It lives in the process, never in the
+    /// catalog files.
+    pub fn set_keyring(&mut self, keyring: Option<Keyring>) {
+        self.keyring = keyring;
+    }
+
+    /// The cipher for `table`'s encrypted columns; `None` when it has none. Errors rather than
+    /// returning garbage if columns are encrypted and no key was provided.
+    pub fn table_cipher(&self, table: &str) -> Result<Option<TableCipher>> {
+        let def = self
+            .table(table)
+            .ok_or_else(|| Error::catalog(format!("unknown table: {table}")))?;
+        if !def.columns.iter().any(|c| c.encrypted) {
+            return Ok(None);
+        }
+        let key = self.keyring.as_ref().ok_or_else(|| {
+            Error::policy(format!(
+                "{table} has encrypted columns and no key is loaded (set PRIVGUARD_COLUMN_KEY)"
+            ))
+        })?;
+        let columns: Vec<Option<String>> = def
+            .columns
+            .iter()
+            .map(|c| c.encrypted.then(|| c.name.clone()))
+            .collect();
+        Ok(Some(key.table_cipher(table, &columns)))
     }
 
     pub fn dir(&self) -> &Path {

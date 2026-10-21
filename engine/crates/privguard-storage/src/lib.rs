@@ -19,7 +19,7 @@ pub use heap::HeapFile;
 pub use page::{crc32c, page_checksum, SlottedPage};
 pub use privguard_core::{Rid, PAGE_SIZE};
 pub use store::{FilePageStore, MemPageStore, PageBuf, PageId, PageStore};
-pub use tuple::{decode_row, encode_row};
+pub use tuple::{decode_row, decode_row_with, encode_row, encode_row_with, ValueCipher};
 
 /// Offsets and sizes of the page header, frozen in `SPEC.md` §5.1.
 ///

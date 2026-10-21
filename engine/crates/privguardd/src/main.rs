@@ -31,7 +31,14 @@ fn secret(var: &str) -> Result<String, Error> {
 
 /// `privguardd load <csv_dir> <db_dir>`
 fn load(csv_dir: &str, db_dir: &str) -> Result<(), Error> {
-    let (_, report) = privguard_catalog::load_safehealth(Path::new(csv_dir), Path::new(db_dir))?;
+    // With PRIVGUARD_COLUMN_KEY set, patients.mrn is stored AES-256-GCM encrypted.
+    let keyring = privguard_crypto::Keyring::from_env()?;
+    let encrypted = keyring.is_some();
+    let (_, report) =
+        privguard_catalog::load_safehealth_with(Path::new(csv_dir), Path::new(db_dir), keyring)?;
+    if encrypted {
+        println!("  patients.mrn stored encrypted (AES-256-GCM)");
+    }
     for (table, rows) in report.rows {
         println!("  {table:<12} {rows:>6} rows");
     }

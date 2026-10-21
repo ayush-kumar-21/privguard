@@ -12,7 +12,8 @@
 use crate::catalog::{Catalog, ColumnDef, ColumnPrivacy, TableDef};
 use crate::AccessMode;
 use privguard_core::{ColumnType, Error, Result, Value};
-use privguard_storage::{encode_row, BPlusTree, FilePageStore, HeapFile};
+use privguard_crypto::Keyring;
+use privguard_storage::{encode_row_with, BPlusTree, FilePageStore, HeapFile, ValueCipher};
 use std::path::Path;
 
 /// Tables in load order (dimensions first), matching `dataset.TABLES` in the oracle.
@@ -277,6 +278,7 @@ fn load_table(cat: &Catalog, def: &TableDef, csv: &Path) -> Result<u64> {
         .collect::<Result<_>>()?;
 
     let types = def.column_types();
+    let cipher = cat.table_cipher(&def.name)?;
     let mut heap = HeapFile::open(FilePageStore::create(&cat.heap_path(&def.name))?)?;
     let mut indexes = Vec::new();
     for ord in indexed_columns(&def.name) {
@@ -298,7 +300,11 @@ fn load_table(cat: &Catalog, def: &TableDef, csv: &Path) -> Result<u64> {
             })
             .collect::<Result<Vec<_>>>()
             .map_err(|e| Error::engine(format!("{} line {}: {e}", csv.display(), lineno + 2)))?;
-        let rid = heap.insert(&encode_row(&types, &row)?)?;
+        let rid = heap.insert(&encode_row_with(
+            &types,
+            &row,
+            cipher.as_ref().map(|c| c as &dyn ValueCipher),
+        )?)?;
         for (ord, tree) in &mut indexes {
             match row[*ord] {
                 Value::I64(k) => tree.insert(k, rid)?,
@@ -312,8 +318,21 @@ fn load_table(cat: &Catalog, def: &TableDef, csv: &Path) -> Result<u64> {
 
 /// A fresh catalog in `dir` holding the SafeHealth schema and policies, with empty tables.
 pub fn create_safehealth_catalog(dir: &Path) -> Result<Catalog> {
+    create_safehealth_catalog_with(dir, None)
+}
+
+/// Like [`create_safehealth_catalog`]. With a `keyring`, `patients.mrn` is stored encrypted
+/// (`SPEC.md` §5.5); without one it stays plaintext, and the catalog says so.
+pub fn create_safehealth_catalog_with(dir: &Path, keyring: Option<Keyring>) -> Result<Catalog> {
+    let encrypt = keyring.is_some();
     let mut cat = Catalog::create(dir, "safehealth", 1e-6)?;
-    for def in safehealth_tables() {
+    cat.set_keyring(keyring);
+    for mut def in safehealth_tables() {
+        if encrypt && def.name == "patients" {
+            for c in def.columns.iter_mut().filter(|c| c.name == "mrn") {
+                c.encrypted = true;
+            }
+        }
         cat.add_table(def)?;
     }
     apply_policies(&mut cat)?;
@@ -322,7 +341,16 @@ pub fn create_safehealth_catalog(dir: &Path) -> Result<Catalog> {
 
 /// Load every SafeHealth CSV in `csv_dir` into a fresh catalog directory `catalog_dir`.
 pub fn load_safehealth(csv_dir: &Path, catalog_dir: &Path) -> Result<(Catalog, LoadReport)> {
-    let mut cat = create_safehealth_catalog(catalog_dir)?;
+    load_safehealth_with(csv_dir, catalog_dir, None)
+}
+
+/// Like [`load_safehealth`], encrypting the columns the key covers.
+pub fn load_safehealth_with(
+    csv_dir: &Path,
+    catalog_dir: &Path,
+    keyring: Option<Keyring>,
+) -> Result<(Catalog, LoadReport)> {
+    let mut cat = create_safehealth_catalog_with(catalog_dir, keyring)?;
 
     let mut report = LoadReport { rows: Vec::new() };
     for name in SAFEHEALTH_TABLES {

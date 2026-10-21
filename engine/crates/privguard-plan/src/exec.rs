@@ -14,7 +14,7 @@ use privguard_catalog::loader::parse_timestamp;
 use privguard_catalog::TableDef;
 use privguard_core::{ColumnType, Error, Result, Rid, Row, RowSource, Value};
 use privguard_sql::{Agg, BoundFilter, CmpOp};
-use privguard_storage::{decode_row, BPlusTree, HeapFile, PageStore};
+use privguard_storage::{decode_row_with, BPlusTree, HeapFile, PageStore, ValueCipher};
 use std::cmp::Ordering;
 
 // -------------------------------------------------------------------- scans
@@ -23,14 +23,25 @@ use std::cmp::Ordering;
 pub struct HeapScan {
     tuples: std::vec::IntoIter<Vec<u8>>,
     types: Vec<ColumnType>,
+    cipher: Option<Box<dyn ValueCipher>>,
 }
 
 impl HeapScan {
     pub fn new<S: PageStore>(heap: &HeapFile<S>, types: Vec<ColumnType>) -> Result<Self> {
+        Self::with_cipher(heap, types, None)
+    }
+
+    /// Scan a table whose encrypted columns `cipher` opens as rows are decoded.
+    pub fn with_cipher<S: PageStore>(
+        heap: &HeapFile<S>,
+        types: Vec<ColumnType>,
+        cipher: Option<Box<dyn ValueCipher>>,
+    ) -> Result<Self> {
         let tuples: Vec<Vec<u8>> = heap.scan()?.into_iter().map(|(_, bytes)| bytes).collect();
         Ok(HeapScan {
             tuples: tuples.into_iter(),
             types,
+            cipher,
         })
     }
 }
@@ -39,7 +50,7 @@ impl RowSource for HeapScan {
     fn next_row(&mut self) -> Result<Option<Row>> {
         self.tuples
             .next()
-            .map(|bytes| decode_row(&self.types, &bytes))
+            .map(|bytes| decode_row_with(&self.types, &bytes, self.cipher.as_deref()))
             .transpose()
     }
 }
@@ -48,6 +59,7 @@ impl RowSource for HeapScan {
 pub struct IndexScan {
     tuples: std::vec::IntoIter<Vec<u8>>,
     types: Vec<ColumnType>,
+    cipher: Option<Box<dyn ValueCipher>>,
 }
 
 impl IndexScan {
@@ -57,6 +69,17 @@ impl IndexScan {
         lo: Option<i64>,
         hi: Option<i64>,
         types: Vec<ColumnType>,
+    ) -> Result<Self> {
+        Self::with_cipher(heap, index, lo, hi, types, None)
+    }
+
+    pub fn with_cipher<S: PageStore, T: PageStore>(
+        heap: &HeapFile<S>,
+        index: &BPlusTree<T>,
+        lo: Option<i64>,
+        hi: Option<i64>,
+        types: Vec<ColumnType>,
+        cipher: Option<Box<dyn ValueCipher>>,
     ) -> Result<Self> {
         let mut rids: Vec<Rid> = index.range(lo, hi)?.into_iter().map(|(_, r)| r).collect();
         // Physical order, so results match a sequential scan of the same rows.
@@ -71,6 +94,7 @@ impl IndexScan {
         Ok(IndexScan {
             tuples: tuples.into_iter(),
             types,
+            cipher,
         })
     }
 }
@@ -79,7 +103,7 @@ impl RowSource for IndexScan {
     fn next_row(&mut self) -> Result<Option<Row>> {
         self.tuples
             .next()
-            .map(|bytes| decode_row(&self.types, &bytes))
+            .map(|bytes| decode_row_with(&self.types, &bytes, self.cipher.as_deref()))
             .transpose()
     }
 }
