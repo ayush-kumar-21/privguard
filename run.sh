@@ -210,7 +210,7 @@ open_tabs() {
   case "$branch" in ''|HEAD|*[!A-Za-z0-9._/-]*) branch=main ;; esac
   local urls=()
   [ -n "$repo" ] && urls+=("https://github.com/${repo}/blob/${branch}/IMPLEMENTATION_PLAN.md")   # plan
-  [ -n "$api" ]  && urls+=("http://localhost:${api}/api/")                                  # backend
+  [ -n "$api" ]  && urls+=("http://localhost:${api}/api/health/")                           # backend (live status)
   [ -n "$repo" ] && urls+=("https://github.com/${repo}/commits/${branch}")                   # history
   [ -n "$api" ]  && urls+=("http://localhost:${api}/admin/")                                # every table (dave / privguard123)
   [ -n "$ui" ]   && urls+=("http://localhost:${ui}/login")                                  # login flow
