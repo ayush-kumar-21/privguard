@@ -187,6 +187,24 @@ print_urls() {
   say ""
 }
 
+# Open the tabs a demo needs. Skip with PRIVGUARD_NO_TABS=1. Needs `open` (macOS) or `xdg-open`.
+open_tabs() {
+  [ "${PRIVGUARD_NO_TABS:-}" = "1" ] && return 0
+  local opener
+  opener="$(command -v open || command -v xdg-open || true)"
+  [ -n "$opener" ] || return 0
+  local ui api repo
+  ui="$(ui_port)"; api="$(api_port)"
+  repo="$(git remote get-url origin 2>/dev/null | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')"
+  local urls=()
+  [ -n "$repo" ] && urls+=("https://github.com/${repo}/blob/main/IMPLEMENTATION_PLAN.md")   # plan
+  [ -n "$api" ]  && urls+=("http://localhost:${api}/api/")                                  # backend
+  [ -n "$repo" ] && urls+=("https://github.com/${repo}/commits/main")                       # history
+  [ -n "$api" ]  && urls+=("http://localhost:${api}/admin/")                                # every table (dave / privguard123)
+  [ -n "$ui" ]   && urls+=("http://localhost:${ui}/login")                                  # login flow
+  for u in "${urls[@]}"; do "$opener" "$u" >/dev/null 2>&1 || true; sleep 0.3; done
+}
+
 # --- commands ----------------------------------------------------------------
 cmd_up() {
   require_docker
@@ -197,6 +215,7 @@ cmd_up() {
   wait_for_api "$port" || true
   sync_frontend_env "$port"
   print_urls
+  open_tabs
 }
 
 cmd_dev() {
