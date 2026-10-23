@@ -21,6 +21,7 @@ const LabsPage = lazy(() => import('./routes/data/labs'))
 const PoliciesPage = lazy(() => import('./routes/governance/policies'))
 const GrantsPage = lazy(() => import('./routes/governance/grants'))
 const RolesPage = lazy(() => import('./routes/governance/roles'))
+const UsersPage = lazy(() => import('./routes/governance/users'))
 const PolicyGridPage = lazy(() => import('./routes/governance/grid'))
 const AuditPage = lazy(() => import('./routes/governance/audit'))
 const LedgerPage = lazy(() => import('./routes/governance/ledger'))
@@ -138,6 +139,14 @@ export default function App() {
                 element={
                   <RouteGate roles={['dba']}>
                     <RolesPage />
+                  </RouteGate>
+                }
+              />
+              <Route
+                path="users"
+                element={
+                  <RouteGate roles={['dba']}>
+                    <UsersPage />
                   </RouteGate>
                 }
               />
