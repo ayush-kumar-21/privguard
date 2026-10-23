@@ -8,7 +8,10 @@ export interface Principal {
   kind: 'human' | 'service'
   is_active: boolean
   is_staff: boolean
-  roles: RoleName[]
+  /** Assigned roles plus the base roles they carry: what the UI gates on. */
+  roles: string[]
+  /** What an administrator actually gave this principal. */
+  assigned_roles?: string[]
   date_joined: string
 }
 
@@ -137,8 +140,10 @@ export type AccessMode = 'raw' | 'dp' | 'redacted' | 'denied'
 
 export interface Role {
   role_id: number
-  role_name: RoleName
+  role_name: string
   description: string | null
+  /** The base role a job role carries; null for the four base roles. */
+  carries?: string | null
 }
 
 export interface ColumnGrant {

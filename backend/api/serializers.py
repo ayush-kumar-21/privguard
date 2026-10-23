@@ -72,9 +72,16 @@ class LabResultSerializer(serializers.ModelSerializer):
 
 # --- Policy / access-control admin (dba-gated writes) ---
 class RoleSerializer(serializers.ModelSerializer):
+    # The base role a job role carries (null for the base roles themselves).
+    carries = serializers.SerializerMethodField()
+
     class Meta:
         model = Role
-        fields = "__all__"
+        fields = ("role_id", "role_name", "description", "carries")
+
+    def get_carries(self, obj) -> str | None:
+        from accounts.roles import carried_role
+        return carried_role(obj.role_name)
 
 
 class ColumnGrantSerializer(serializers.ModelSerializer):

@@ -35,23 +35,24 @@ export function RoleCard() {
     0,
   )
 
-  // dba passes every gate, so it is the meaningful role to describe when a
-  // principal somehow holds several.
-  const primary: RoleName = principal.roles.includes('dba')
-    ? 'dba'
-    : (principal.roles[0] as RoleName)
+  // Describe the strongest base role the principal holds (job roles carry one). dba passes
+  // every gate, so it wins when a principal holds several.
+  const primary: RoleName =
+    (['dba', 'auditor', 'dp_analyst', 'clinician'] as const).find((r) =>
+      principal.roles.includes(r),
+    ) ?? 'dp_analyst'
 
   return (
     <div className="mx-3 mb-3 rounded-md border border-border bg-surface-2 px-3 py-2.5">
       <p className="label-micro pb-1.5">Signed in as</p>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        {principal.roles.map((role) => (
+        {(principal.assigned_roles ?? principal.roles).map((role) => (
           <span
             key={role}
             className="num rounded-sm bg-accent-weak px-1.5 py-0.5 text-micro font-medium text-accent"
           >
-            {ROLE_LABEL[role as RoleName] ?? role}
+            {ROLE_LABEL[role as RoleName] ?? role.replace(/_/g, ' ')}
           </span>
         ))}
       </div>

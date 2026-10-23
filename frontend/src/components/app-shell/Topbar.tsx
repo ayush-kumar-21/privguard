@@ -104,9 +104,9 @@ export function Topbar({ title, elevated = false }: { title: string; elevated?: 
                 {principal?.username}
               </p>
               <div className="mt-1.5 flex flex-wrap gap-1">
-                {principal?.roles.map((role) => (
+                {(principal?.assigned_roles ?? principal?.roles ?? []).map((role) => (
                   <Badge key={role} tone="outline">
-                    {ROLE_LABEL[role] ?? role}
+                    {ROLE_LABEL[role] ?? role.replace(/_/g, ' ')}
                   </Badge>
                 ))}
               </div>

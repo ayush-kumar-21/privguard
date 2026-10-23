@@ -38,13 +38,20 @@ interface ManagedUser {
 const USERS_KEY = ['users'] as const
 
 /** Create (user === null) or edit one user. Only what the administrator changed is sent. */
+const GROUPS: { base: string; title: string }[] = [
+  { base: 'dba', title: 'Administration' },
+  { base: 'dp_analyst', title: 'Analysis (runs DP queries)' },
+  { base: 'auditor', title: 'Oversight (audit log and ledger)' },
+  { base: 'clinician', title: 'Clinical (identified records)' },
+]
+
 function UserDialog({
   user,
-  roleNames,
+  roleList,
   onClose,
 }: {
   user: ManagedUser | null
-  roleNames: string[]
+  roleList: Role[]
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
@@ -138,23 +145,37 @@ function UserDialog({
               />
             </Field>
 
-            <fieldset className="grid gap-2">
+            <fieldset className="grid gap-3">
               <legend className="mb-1 text-small text-text">Roles</legend>
-              <div className="flex flex-wrap gap-2">
-                {roleNames.map((role) => (
-                  <label
-                    key={role}
-                    className="inline-flex cursor-pointer items-center gap-2 rounded-sm border border-border px-2.5 py-1.5 text-small hover:bg-surface-2"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={roles.has(role)}
-                      onChange={() => toggle(role)}
-                    />
-                    <span className="num">{role}</span>
-                  </label>
-                ))}
-              </div>
+              {GROUPS.map(({ base, title }) => {
+                // A group is the base role plus every job role that carries it.
+                const inGroup = roleList.filter((r) => r.role_name === base || r.carries === base)
+                if (inGroup.length === 0) return null
+                return (
+                  <div key={base} className="grid gap-1.5">
+                    <p className="label-micro">{title}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {inGroup.map((r) => (
+                        <label
+                          key={r.role_name}
+                          title={r.description ?? undefined}
+                          className="inline-flex cursor-pointer items-center gap-2 rounded-sm border border-border px-2.5 py-1.5 text-small hover:bg-surface-2"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={roles.has(r.role_name)}
+                            onChange={() => toggle(r.role_name)}
+                          />
+                          <span className="num">{r.role_name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+              <p className="text-micro text-faint">
+                A job role carries one base role’s access and nothing more. Hover a role for what it is for.
+              </p>
             </fieldset>
 
             <div className="grid gap-4 sm:grid-cols-2">
@@ -223,7 +244,7 @@ export default function UsersPage() {
     queryKey: qk.roles(),
     queryFn: async () => {
       const { data } = await api.get<Paginated<Role> | Role[]>('/roles/')
-      return (Array.isArray(data) ? data : data.results).map((r) => r.role_name as string)
+      return Array.isArray(data) ? data : data.results
     },
   })
 
@@ -323,7 +344,7 @@ export default function UsersPage() {
           // A new key per target so the form never shows the previous user's values.
           key={dialog.user?.id ?? 'new'}
           user={dialog.user}
-          roleNames={roles.data ?? ['dp_analyst', 'clinician', 'auditor', 'dba']}
+          roleList={roles.data ?? []}
           onClose={() => setDialog(null)}
         />
       ) : null}

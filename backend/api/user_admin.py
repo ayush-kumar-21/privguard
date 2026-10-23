@@ -15,10 +15,12 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from rest_framework import status, viewsets
 from rest_framework.response import Response
 
 from accounts.models import PrincipalRole, Role
+from accounts.roles import effective_role_names
 from budget.models import BudgetAccount
 from catalog.models import SysDatabase
 
@@ -28,7 +30,7 @@ Principal = get_user_model()
 audit_log = logging.getLogger("privguard.admin")
 
 DB_NAME = "safehealth"
-USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,64}$")
+USERNAME_RE = re.compile(r"[A-Za-z0-9_.-]{3,64}")  # used with fullmatch: `$` would accept a trailing newline
 MAX_RHO = 1000.0
 # Roles that run DP queries need a budget account even if the admin gave no figure.
 QUERY_ROLES = {"dp_analyst", "auditor"}
@@ -82,6 +84,7 @@ def _view(user, account=None):
         "username": user.username,
         "kind": user.kind,
         "is_active": user.is_active,
+        "is_superuser": user.is_superuser,
         "roles": sorted(r.role_name for r in user.roles.all()),
         "account": None if account is None else {
             "account_id": account.account_id,
@@ -95,9 +98,10 @@ def _view(user, account=None):
     }
 
 
-def _other_active_dba_exists(excluding):
-    return Principal.objects.filter(
-        is_active=True, roles__role_name="dba"
+def _other_active_admin_exists(excluding):
+    """Another active principal who can administer: holds `dba` or is a Django superuser."""
+    return Principal.objects.filter(is_active=True).filter(
+        Q(roles__role_name="dba") | Q(is_superuser=True)
     ).exclude(pk=excluding.pk).exists()
 
 
@@ -119,7 +123,7 @@ class UserAdminViewSet(viewsets.ViewSet):
             return Response({"error": "expected a JSON object"}, status=status.HTTP_400_BAD_REQUEST)
         try:
             username = body.get("username")
-            if not isinstance(username, str) or not USERNAME_RE.match(username):
+            if not isinstance(username, str) or not USERNAME_RE.fullmatch(username):
                 raise Invalid("username must be 3-64 characters: letters, digits, . _ -")
             if Principal.objects.filter(username__iexact=username).exists():
                 raise Invalid("that username is taken")
@@ -142,12 +146,12 @@ class UserAdminViewSet(viewsets.ViewSet):
 
         names = {r.role_name for r in roles}
         db = SysDatabase.objects.filter(db_name=DB_NAME).first()
-        if db and (rho is not None or names & QUERY_ROLES):
+        if db and (rho is not None or effective_role_names(names) & QUERY_ROLES):
             BudgetAccount.objects.create(
                 principal=user, db=db, delta_target=db.default_delta,
                 rho_total=rho if rho is not None else db.default_rho, max_queries=quota,
             )
-        audit_log.info("user created: %s by %s roles=%s", user.username, request.user.username, sorted(names))
+        audit_log.info("user created: %r by %r roles=%s", user.username, request.user.username, sorted(names))
         return Response(_view(user), status=status.HTTP_201_CREATED)
 
     @transaction.atomic
@@ -156,6 +160,10 @@ class UserAdminViewSet(viewsets.ViewSet):
         if user is None:
             return Response({"error": "no such user"}, status=status.HTTP_404_NOT_FOUND)
         body, me = request.data, request.user
+        if (user.is_superuser or user.is_staff) and not me.is_superuser:
+            # Otherwise a dba could reset a superuser's password and become one.
+            return Response({"error": "only a superuser can change a superuser or staff account"},
+                            status=status.HTTP_403_FORBIDDEN)
         if not hasattr(body, "get"):
             return Response({"error": "expected a JSON object"}, status=status.HTTP_400_BAD_REQUEST)
         try:
@@ -172,16 +180,20 @@ class UserAdminViewSet(viewsets.ViewSet):
             quota = _whole(body.get("max_queries"), "max_queries")
 
             # Never leave the system without an active administrator.
-            was_dba = user.roles.filter(role_name="dba").exists()
-            will_be_dba = was_dba if new_roles is None else any(r.role_name == "dba" for r in new_roles)
+            was_dba = user.is_superuser or user.roles.filter(role_name="dba").exists()
+            will_be_dba = was_dba if new_roles is None else (user.is_superuser or any(r.role_name == "dba" for r in new_roles))
             will_be_active = body.get("is_active", user.is_active)
-            if was_dba and not (will_be_dba and will_be_active) and not _other_active_dba_exists(user):
+            if was_dba and not (will_be_dba and will_be_active) and not _other_active_admin_exists(user):
                 raise Invalid("this is the last active administrator; make another one first")
             if new_roles is not None and user.pk == me.pk and was_dba and not will_be_dba:
                 raise Invalid("you cannot remove your own administrator role")
 
             account = BudgetAccount.objects.select_for_update().filter(
                 principal=user, db__db_name=DB_NAME).first()
+            query_role_given = bool(new_roles) and bool(
+                effective_role_names(r.role_name for r in new_roles) & QUERY_ROLES)
+            if quota_given and quota is not None and account is None and rho is None and not query_role_given:
+                raise Invalid("this user has no budget account; give them credits first")
             if rho is not None and account and rho < account.rho_spent + account.rho_reserved:
                 raise Invalid(
                     f"credits cannot go below what is already spent or held "
@@ -202,7 +214,7 @@ class UserAdminViewSet(viewsets.ViewSet):
 
         db = SysDatabase.objects.filter(db_name=DB_NAME).first()
         if account is None and db and (
-            rho is not None or (new_roles and {r.role_name for r in new_roles} & QUERY_ROLES)
+            rho is not None or (new_roles and effective_role_names(r.role_name for r in new_roles) & QUERY_ROLES)
         ):
             account = BudgetAccount.objects.create(
                 principal=user, db=db, delta_target=db.default_delta,
@@ -214,11 +226,8 @@ class UserAdminViewSet(viewsets.ViewSet):
             if quota_given:
                 account.max_queries = quota
             account.save()
-        elif quota_given and quota is not None:
-            return Response({"error": "this user has no budget account; give them credits first"},
-                            status=status.HTTP_400_BAD_REQUEST)
 
-        audit_log.info("user updated: %s by %s fields=%s", user.username, me.username,
+        audit_log.info("user updated: %r by %r fields=%s", user.username, me.username,
                        sorted(k for k in body if k != "password") + (["password"] if "password" in body else []))
         user.refresh_from_db()
         return Response(_view(user))

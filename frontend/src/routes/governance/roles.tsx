@@ -16,6 +16,7 @@ const ROLE_REACH: Record<string, string[]> = {
   auditor: ['Overview', 'Console', 'Audit', 'Ledger', 'Attack Lab'],
   dba: ['Everything, including policy administration'],
 }
+// Job roles (researcher, nurse, ...) carry one of the four roles above and reach exactly what it does.
 
 export default function RolesPage() {
   const roles = useQuery({
@@ -60,7 +61,7 @@ export default function RolesPage() {
                       <EmptyState
                         icon={IdentificationBadge}
                         title="No roles defined"
-                        description="Run manage.py seed_demo to create the four demonstration roles."
+                        description="Run manage.py migrate to create the standard roles."
                       />
                     </td>
                   </tr>
@@ -72,10 +73,15 @@ export default function RolesPage() {
                           <span className="num">{role.role_name}</span>
                         </Badge>
                       </TD>
-                      <TD className="text-muted">{role.description ?? '--'}</TD>
+                      <TD className="text-muted">
+                        {role.description ?? '--'}
+                        {role.carries ? (
+                          <span className="num ml-1.5 text-faint">(carries {role.carries})</span>
+                        ) : null}
+                      </TD>
                       <TD>
                         <div className="flex flex-wrap gap-1">
-                          {(ROLE_REACH[role.role_name] ?? ['--']).map((surface) => (
+                          {(ROLE_REACH[role.carries ?? role.role_name] ?? ['--']).map((surface) => (
                             <span
                               key={surface}
                               className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-micro text-muted"

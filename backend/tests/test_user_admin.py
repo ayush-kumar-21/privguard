@@ -232,3 +232,41 @@ def test_create_admin_refuses_a_weak_password(roles, monkeypatch):
     with pytest.raises(CommandError):
         call_command("create_admin", "boss2")
     assert not Principal.objects.filter(username="boss2").exists()
+
+
+# --- findings from the security review -----------------------------------------
+def test_a_dba_cannot_take_over_a_superuser_account(api, admin):
+    owner = Principal.objects.create_superuser(username="site_owner", password=PASSWORD)
+    for body in ({"password": NEW_PASSWORD}, {"is_active": False}, {"roles": ["auditor"]}):
+        assert api.patch(f"/api/users/{owner.id}/", body, format="json").status_code == 403
+    assert _login(APIClient(), "site_owner", PASSWORD).status_code == 200  # untouched
+
+
+def test_a_superuser_may_manage_other_superusers(admin):
+    boss = Principal.objects.create_superuser(username="boss_one", password=PASSWORD)
+    other = Principal.objects.create_superuser(username="boss_two", password=PASSWORD)
+    assert _client(boss).patch(f"/api/users/{other.id}/", {"is_active": False}, format="json").status_code == 200
+
+
+def test_a_superuser_counts_as_an_administrator_for_the_last_admin_guard(api, admin):
+    Principal.objects.create_superuser(username="site_owner", password=PASSWORD)
+    other = _make("temp_dba", "dba")
+    assert api.patch(f"/api/users/{other.id}/", {"is_active": False}, format="json").status_code == 200
+
+
+@pytest.mark.parametrize("name", ["abc\n", "abc\r\nforged", "ab c", "caf\u00e9"])
+def test_usernames_with_newlines_or_odd_characters_are_refused(api, name):
+    assert new_user(api, username=name).status_code == 400
+    assert Principal.objects.filter(username=name).count() == 0
+
+
+def test_a_rejected_edit_changes_nothing(api):
+    uid = new_user(api, username="doc_z", roles=["clinician"]).data["id"]
+    resp = api.patch(f"/api/users/{uid}/", {"roles": ["auditor"], "is_active": False, "max_queries": 5}, format="json")
+    # auditor is a query role, so an account will exist and the quota is fine; use a role that is not.
+    assert resp.status_code == 200
+    uid2 = new_user(api, username="doc_w", roles=["clinician"]).data["id"]
+    resp = api.patch(f"/api/users/{uid2}/", {"roles": ["nurse"], "is_active": False, "max_queries": 5}, format="json")
+    assert resp.status_code == 400
+    user = Principal.objects.get(pk=uid2)
+    assert user.is_active and sorted(r.role_name for r in user.roles.all()) == ["clinician"]
