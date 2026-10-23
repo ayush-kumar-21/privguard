@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import {
   ArrowClockwise,
   ShieldCheck,
@@ -10,21 +11,77 @@ import { RhoMeter } from '../../components/privacy/RhoMeter'
 import { EmptyState, ErrorState, SkeletonRows } from '../../components/states'
 import { Badge, Dot } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
+import { Input } from '../../components/ui/input'
 import { PageHeader, Panel, PanelHeader } from '../../components/ui/panel'
 import { Table, TBody, TD, TH, THead, TR, TableScroll } from '../../components/ui/table'
 import { useLedgerVerify } from '../../hooks/useBudget'
-import { apiError, fetchAll } from '../../lib/api'
+import api, { apiError, fetchAll } from '../../lib/api'
 import { epsFromRho } from '../../lib/accounting'
 import { budgetBand, eps, int, rho } from '../../lib/format'
 import { qk } from '../../lib/queryKeys'
+import { useAuth } from '../../stores/auth'
 import type { BudgetAccount } from '../../lib/types'
+
+/**
+ * Runs used / allowed. A DBA can type a new limit (empty = unlimited); it applies to the account's
+ * very next query, because the server reads the limit afresh on every run.
+ */
+function QuotaCell({ account, canEdit }: { account: BudgetAccount; canEdit: boolean }) {
+  const queryClient = useQueryClient()
+  const [draft, setDraft] = useState('')
+  const save = useMutation({
+    mutationFn: (max_queries: number | null) =>
+      api.post(`/budget-accounts/${account.account_id}/quota/`, { max_queries }),
+    onSuccess: () => {
+      setDraft('')
+      void queryClient.invalidateQueries({ queryKey: ['budget-accounts'] })
+    },
+  })
+  const parsed = draft.trim() === '' ? null : Number(draft)
+  const valid = parsed === null || (Number.isInteger(parsed) && parsed >= 0)
+
+  return (
+    <div className="flex items-center gap-2.5">
+      <span
+        className={`num w-20 shrink-0 ${account.queries_remaining === 0 ? 'text-danger' : ''}`}
+      >
+        {account.queries_used} / {account.max_queries ?? '\u221e'}
+      </span>
+      {canEdit ? (
+        <>
+          <Input
+            type="number"
+            min={0}
+            step={1}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="runs"
+            aria-label={`Run quota for ${account.principal_name}`}
+            className="h-8 w-20"
+          />
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={save.isPending}
+            disabled={!valid || (draft === '' && account.max_queries === null)}
+            onClick={() => save.mutate(parsed)}
+          >
+            {draft === '' ? 'No limit' : 'Set'}
+          </Button>
+        </>
+      ) : null}
+    </div>
+  )
+}
 
 export default function LedgerPage() {
   const verify = useLedgerVerify()
+  const canEdit = useAuth((state) => state.principal?.roles.includes('dba') ?? false)
 
   const accounts = useQuery({
     queryKey: qk.budgetAccounts(),
     queryFn: () => fetchAll<BudgetAccount>('/budget-accounts/'),
+    refetchInterval: 3_000, // quotas move as analysts run queries
   })
 
   const ok = verify.data?.ok
@@ -138,7 +195,7 @@ export default function LedgerPage() {
       <Panel inset>
         <PanelHeader
           title="Budget accounts"
-          description="Read-only. Balances move only through the reserve and settle procedures, never by direct update."
+          description="Balances move only through the reserve and settle procedures, never by direct update. Run quotas are set by the administrator and refresh live."
         />
 
         {accounts.isError ? (
@@ -157,6 +214,7 @@ export default function LedgerPage() {
                   <TH className="text-right">reserved</TH>
                   <TH className="text-right">total</TH>
                   <TH className="text-right">eps equivalent</TH>
+                  <TH className="min-w-[14rem]">runs used / allowed</TH>
                   <TH>status</TH>
                 </tr>
               </THead>
@@ -164,11 +222,11 @@ export default function LedgerPage() {
                 {accounts.isPending ? (
                   <SkeletonRows
                     rows={4}
-                    widths={['w-16', 'w-28', 'w-12', 'w-12', 'w-12', 'w-14', 'w-16']}
+                    widths={['w-16', 'w-28', 'w-12', 'w-12', 'w-12', 'w-14', 'w-24', 'w-16']}
                   />
                 ) : accounts.data.length === 0 ? (
                   <tr>
-                    <td colSpan={7}>
+                    <td colSpan={8}>
                       <EmptyState
                         icon={Vault}
                         title="No budget accounts"
@@ -216,6 +274,9 @@ export default function LedgerPage() {
                             epsFromRho(account.rho_spent, account.delta_target ?? 1e-6),
                             2,
                           )}
+                        </TD>
+                        <TD>
+                          <QuotaCell account={account} canEdit={canEdit} />
                         </TD>
                         <TD>
                           <Badge

@@ -1,5 +1,6 @@
 from django.db import connection
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -136,6 +137,25 @@ class BudgetAccountViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         return _scoped(BudgetAccount.objects.select_related("principal"), self.request.user).order_by("account_id")
+
+    @action(detail=True, methods=["post"], permission_classes=[IsDbaOrReadOnly])
+    def quota(self, request, pk=None):
+        """POST /api/budget-accounts/<id>/quota/  {"max_queries": 25|null, "reset_used": false}
+
+        DBA only. Takes effect on the account's very next query."""
+        body = request.data
+        if "max_queries" not in body:
+            return Response({"error": "max_queries is required (a whole number, or null)"}, status=400)
+        limit = body["max_queries"]
+        if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit < 0):
+            return Response({"error": "max_queries must be a whole number >= 0, or null"}, status=400)
+        fields = {"max_queries": limit}
+        if body.get("reset_used") is True:
+            fields["queries_used"] = 0
+        updated = self.get_queryset().filter(pk=pk).update(**fields)
+        if not updated:
+            return Response({"error": "no such budget account"}, status=404)
+        return Response(self.get_serializer(self.get_queryset().get(pk=pk)).data)
 
 
 class QueryAuditViewSet(viewsets.ReadOnlyModelViewSet):

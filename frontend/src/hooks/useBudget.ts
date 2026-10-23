@@ -22,7 +22,10 @@ export function useBudget(db = 'safehealth') {
         throw error
       }
     },
-    staleTime: 10_000,
+    // Quotas change under the user (an administrator edits them), so re-read every few seconds.
+    // The endpoint is a single indexed row, and react-query pauses this while the tab is hidden.
+    staleTime: 2_000,
+    refetchInterval: 3_000,
   })
 }
 

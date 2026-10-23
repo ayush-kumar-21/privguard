@@ -259,32 +259,7 @@ def _execute_grouped(spec, policy: Policy, rho: float, seed: bytes, delta_partit
 # --------------------------------------------------------------------------
 # Public entry point
 # --------------------------------------------------------------------------
-def run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAULT_RHO) -> dict:
-    """Run a DP query, padding the response time to a fixed floor.
-
-    The exact samplers loop a randomised number of times, so without a floor the
-    wall-clock time is a (weak) side channel (Jin et al., IEEE S&P 2022).
-    """
-    started = time.perf_counter()
-    try:
-        return _run_private_query(principal, db_name, sql, rho_req)
-    finally:
-        floor_ms = float(getattr(settings, "PRIVGUARD_MIN_RESPONSE_MS", 0))
-        remaining = floor_ms / 1000.0 - (time.perf_counter() - started)
-        if remaining > 0:
-            time.sleep(remaining)
-
-
-def _run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAULT_RHO) -> dict:
-    db = SysDatabase.objects.filter(db_name=db_name).first()
-    if not db:
-        raise DPQueryError(f"unknown database: {db_name}")
-    account = BudgetAccount.objects.filter(principal=principal, db=db).first()
-    if not account:
-        raise DPQueryError("no budget account for this principal/database")
-
-    spec = parse(sql)
-    ast_hash = spec.ast_hash()
+def _get_fingerprint(db, spec, ast_hash):
     try:
         fingerprint, _ = SysQueryFingerprint.objects.get_or_create(
             ast_hash=ast_hash,
@@ -298,6 +273,100 @@ def _run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAU
         )
     except IntegrityError:
         fingerprint = SysQueryFingerprint.objects.get(ast_hash=ast_hash)
+    return fingerprint
+
+
+def _take_run(principal, db_name: str):
+    """Use one run of the principal's quota, atomically. Returns the account id once a run was
+    taken, `"no_account"` when there is no quota to charge, or None when the quota is spent.
+
+    One conditional UPDATE does the check and the increment together, so two concurrent queries
+    can never both take the last run, and `max_queries` is read from the row at that moment:
+    an administrator's change applies to the very next query.
+    """
+    account_id = (
+        BudgetAccount.objects.filter(principal=principal, db__db_name=db_name)
+        .values_list("account_id", flat=True).first()
+    )
+    if account_id is None:
+        return "no_account"  # no account: the normal "no budget account" path reports it
+    taken = BudgetAccount.objects.filter(
+        Q(max_queries__isnull=True) | Q(queries_used__lt=F("max_queries")),
+        account_id=account_id,
+    ).update(queries_used=F("queries_used") + 1)
+    return account_id if taken else None
+
+
+def _refund_run(account_id) -> None:
+    BudgetAccount.objects.filter(account_id=account_id, queries_used__gt=0).update(
+        queries_used=F("queries_used") - 1
+    )
+
+
+def _quota_exhausted(principal, db_name: str, sql: str) -> dict:
+    """The answer for a spent quota. Audited like any other refusal, so monitoring sees it."""
+    db = SysDatabase.objects.get(db_name=db_name)
+    account = BudgetAccount.objects.get(principal=principal, db=db)
+    spec = parse(sql)  # a malformed query is a 400 first, whatever the quota says
+    SysQuery.objects.create(
+        principal=principal, db=db, fingerprint=_get_fingerprint(db, spec, spec.ast_hash()),
+        sql_text=sql, status="rejected_budget", rho_charged=0.0, latency_ms=0.0,
+    )
+    resp = _response("rejected_budget", [], 0.0, 0.0, "none", None, account)
+    resp["reason"] = "quota"
+    return resp
+
+
+def run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAULT_RHO) -> dict:
+    """Run a DP query, padding the response time to a fixed floor.
+
+    The exact samplers loop a randomised number of times, so without a floor the
+    wall-clock time is a (weak) side channel (Jin et al., IEEE S&P 2022).
+
+    Each answered query uses one run of the analyst's quota; anything that does not produce an
+    answer (rejection, policy error, crash) gives the run back.
+    """
+    started = time.perf_counter()
+    taken = None
+    try:
+        taken = _take_run(principal, db_name)
+        if taken is None:
+            return _quota_exhausted(principal, db_name, sql)
+        result = _run_private_query(principal, db_name, sql, rho_req)
+        if taken != "no_account":
+            if result["status"] not in ("executed", "cache_hit"):
+                _refund_run(taken)
+            result = _with_quota(result, taken)
+        return result
+    except BaseException:
+        if taken not in (None, "no_account"):
+            _refund_run(taken)
+        raise
+    finally:
+        floor_ms = float(getattr(settings, "PRIVGUARD_MIN_RESPONSE_MS", 0))
+        remaining = floor_ms / 1000.0 - (time.perf_counter() - started)
+        if remaining > 0:
+            time.sleep(remaining)
+
+
+def _with_quota(result: dict, account_id) -> dict:
+    """Refresh the quota figures in `result["budget"]` after the run was settled."""
+    account = BudgetAccount.objects.get(account_id=account_id)
+    result["budget"].update(_quota_fields(account))
+    return result
+
+
+def _run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAULT_RHO) -> dict:
+    db = SysDatabase.objects.filter(db_name=db_name).first()
+    if not db:
+        raise DPQueryError(f"unknown database: {db_name}")
+    account = BudgetAccount.objects.filter(principal=principal, db=db).first()
+    if not account:
+        raise DPQueryError("no budget account for this principal/database")
+
+    spec = parse(sql)
+    ast_hash = spec.ast_hash()
+    fingerprint = _get_fingerprint(db, spec, ast_hash)
 
     # --- Memoisation: identical fingerprint + principal -> cached answer, rho=0
     cached = SysNoiseCache.objects.filter(fingerprint=fingerprint, principal=principal).first()
@@ -425,5 +494,14 @@ def _response(status, result, rho, eps, mechanism, query_id, account) -> dict:
             "rho_reserved": account.rho_reserved,
             "rho_remaining": account.rho_remaining,
             "status": account.status,
+            **_quota_fields(account),
         },
+    }
+
+
+def _quota_fields(account) -> dict:
+    return {
+        "max_queries": account.max_queries,
+        "queries_used": account.queries_used,
+        "queries_remaining": account.queries_remaining,
     }

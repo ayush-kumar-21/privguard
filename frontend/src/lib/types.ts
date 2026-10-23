@@ -22,6 +22,10 @@ export interface BudgetAccount {
   delta_target: number | null
   window_type: string
   status: string
+  /** Run quota set by the administrator; null = unlimited. */
+  max_queries: number | null
+  queries_used: number
+  queries_remaining: number | null
 }
 
 export type QueryStatus =
@@ -54,12 +58,17 @@ export interface DPQueryResponse {
   mechanism: string
   query_id: number
   suppressed_groups?: number
+  /** Why a `rejected_budget` was refused: 'quota' (runs used up) or 'global_cap'. */
+  reason?: string
   budget: {
     rho_total: number
     rho_spent: number
     rho_reserved: number
     rho_remaining: number
     status: string
+    max_queries: number | null
+    queries_used: number
+    queries_remaining: number | null
   }
 }
 

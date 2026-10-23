@@ -84,7 +84,11 @@ export default function DashboardPage() {
           value={int(counts.data?.total ?? 0)}
           detail={
             counts.data
-              ? `${int(counts.data.executed)} executed - ${int(counts.data.cache_hit)} from cache`
+              ? `${int(counts.data.executed)} executed - ${int(counts.data.cache_hit)} from cache${
+                  account?.queries_remaining != null
+                    ? ` - ${int(account.queries_remaining)} of ${int(account.max_queries ?? 0)} runs left`
+                    : ''
+                }`
               : null
           }
         />

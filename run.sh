@@ -203,19 +203,37 @@ open_tabs() {
     ''|/*|*/|*/*/*|*[!A-Za-z0-9._/-]*) repo='' ;;
   esac
   case "$repo" in */*) ;; *) repo='' ;; esac
+  # The branch you are on, if it is pushed (so the plan tab shows current work, not a stale main).
+  local branch
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1 || branch=main
+  case "$branch" in ''|HEAD|*[!A-Za-z0-9._/-]*) branch=main ;; esac
   local urls=()
-  [ -n "$repo" ] && urls+=("https://github.com/${repo}/blob/main/IMPLEMENTATION_PLAN.md")   # plan
+  [ -n "$repo" ] && urls+=("https://github.com/${repo}/blob/${branch}/IMPLEMENTATION_PLAN.md")   # plan
   [ -n "$api" ]  && urls+=("http://localhost:${api}/api/")                                  # backend
-  [ -n "$repo" ] && urls+=("https://github.com/${repo}/commits/main")                       # history
+  [ -n "$repo" ] && urls+=("https://github.com/${repo}/commits/${branch}")                   # history
   [ -n "$api" ]  && urls+=("http://localhost:${api}/admin/")                                # every table (dave / privguard123)
   [ -n "$ui" ]   && urls+=("http://localhost:${ui}/login")                                  # login flow
   for u in "${urls[@]}"; do "$opener" "$u" >/dev/null 2>&1 || true; sleep 0.3; done
 }
 
 # --- commands ----------------------------------------------------------------
+# Postgres applies POSTGRES_PASSWORD only when the data volume is first created. If .env was
+# regenerated since, the api fails with "password authentication failed" and exits. Re-sync the
+# role's password over the container's local socket (no old password needed, no data touched).
+sync_db_password() {
+  local pw; pw="$(grep -m1 '^POSTGRES_PASSWORD=' .env | cut -d= -f2-)"
+  [ -n "$pw" ] || return 0
+  printf "ALTER USER privguard PASSWORD :'pw';\n" \
+    | compose exec -T -e PGPW="$pw" db sh -c 'psql -q -U privguard -d safehealth -v ON_ERROR_STOP=1 -v pw="$PGPW"' \
+    >/dev/null 2>&1 || warn "Could not sync the database password; if the api cannot log in, run ./run.sh reset."
+}
+
 cmd_up() {
   require_docker
   info "Building and starting containers..."
+  compose up -d --wait db
+  sync_db_password
   compose up -d "$@"
   local port; port="$(api_port)"
   [ -n "$port" ] || die "The api service did not publish a port. Check: ./run.sh logs api"
@@ -228,6 +246,8 @@ cmd_up() {
 cmd_dev() {
   require_docker
   info "Starting db + api..."
+  compose up -d --wait db
+  sync_db_password
   compose up -d db api
   local port; port="$(api_port)"
   [ -n "$port" ] || die "The api service did not publish a port. Check: ./run.sh logs api"

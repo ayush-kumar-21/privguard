@@ -248,7 +248,9 @@ export default function ConsolePage() {
             <InlineError
               message={
                 result.status === 'rejected_budget'
-                  ? 'Budget reservation failed. This account does not have enough rho left for the requested spend.'
+                  ? result.reason === 'quota'
+                    ? 'Run quota used up. Your administrator has allowed a fixed number of runs, and you have used them all.'
+                    : 'Budget reservation failed. This account does not have enough rho left for the requested spend.'
                   : 'The query was refused by a column or table policy.'
               }
             />

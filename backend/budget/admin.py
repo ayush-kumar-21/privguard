@@ -5,7 +5,12 @@ from .models import BudgetAccount, BudgetLedger
 
 @admin.register(BudgetAccount)
 class BudgetAccountAdmin(admin.ModelAdmin):
-    list_display = ("account_id", "principal", "db", "rho_total", "rho_spent", "rho_reserved", "status")
+    list_display = (
+        "account_id", "principal", "db", "rho_total", "rho_spent", "rho_reserved", "status",
+        "max_queries", "queries_used",
+    )
+    # Edit a quota straight from the list; it applies to the account's next query.
+    list_editable = ("max_queries",)
     list_filter = ("status", "window_type")
 
 

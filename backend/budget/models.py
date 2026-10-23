@@ -35,6 +35,12 @@ class BudgetAccount(models.Model):
     window_start = models.DateTimeField(auto_now_add=True)
     refill_period_s = models.BigIntegerField(null=True, blank=True)
     status = models.CharField(max_length=12, choices=STATUS_CHOICES, default="active")
+    # Run quota, set by the administrator. Every answered query (new or cached) uses one run;
+    # NULL means unlimited. Read afresh on each query, so a change applies to the very next run.
+    max_queries = models.PositiveIntegerField(
+        null=True, blank=True, help_text="runs allowed; empty = unlimited"
+    )
+    queries_used = models.PositiveIntegerField(default=0, help_text="runs used so far (counted even when unlimited)")
 
     class Meta:
         db_table = "sys_budget_account"
@@ -60,6 +66,13 @@ class BudgetAccount(models.Model):
     @property
     def rho_remaining(self) -> float:
         return self.rho_total - self.rho_spent - self.rho_reserved
+
+    @property
+    def queries_remaining(self) -> int | None:
+        """Runs left, or None when the quota is unlimited."""
+        if self.max_queries is None:
+            return None
+        return max(0, self.max_queries - self.queries_used)
 
 
 class BudgetLedger(models.Model):

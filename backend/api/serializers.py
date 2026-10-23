@@ -99,6 +99,7 @@ class TablePrivacySerializer(serializers.ModelSerializer):
 class BudgetAccountSerializer(serializers.ModelSerializer):
     principal_name = serializers.CharField(source="principal.username", read_only=True)
     rho_remaining = serializers.FloatField(read_only=True)
+    queries_remaining = serializers.IntegerField(read_only=True)
     delta_spent = serializers.SerializerMethodField()
 
     class Meta:
@@ -106,7 +107,7 @@ class BudgetAccountSerializer(serializers.ModelSerializer):
         fields = (
             "account_id", "principal_name", "rho_total", "rho_spent",
             "rho_reserved", "rho_remaining", "delta_target", "delta_spent",
-            "window_type", "status",
+            "window_type", "status", "max_queries", "queries_used", "queries_remaining",
         )
 
     def get_delta_spent(self, obj) -> float:
