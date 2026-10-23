@@ -48,8 +48,16 @@ gen_secret() {
   fi
 }
 
+# An older .env has no monitor key; add one (never overwrites an existing value).
+ensure_monitor_key() {
+  grep -q '^PRIVGUARD_MONITOR_KEY=.' .env 2>/dev/null && return 0
+  grep -v '^PRIVGUARD_MONITOR_KEY=' .env > .env.tmp || true
+  printf 'PRIVGUARD_MONITOR_KEY=%s\n' "$(gen_secret)" >> .env.tmp
+  mv .env.tmp .env
+}
+
 ensure_env() {
-  [ -f .env ] && return 0
+  if [ -f .env ]; then ensure_monitor_key; return 0; fi
   [ -f .env.example ] || die ".env is missing and so is .env.example."
   : > .env
   while IFS= read -r line || [ -n "$line" ]; do
@@ -208,12 +216,23 @@ open_tabs() {
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
   git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1 || branch=main
   case "$branch" in ''|HEAD|*[!A-Za-z0-9._/-]*) branch=main ;; esac
+  # Monitor pages (live): in demo mode the key opens a read-only session so no tab asks you to log in.
+  local key debug mon
+  key="$(grep -m1 '^PRIVGUARD_MONITOR_KEY=' .env 2>/dev/null | cut -d= -f2-)"
+  debug="$(grep -m1 '^DEBUG=' .env 2>/dev/null | cut -d= -f2-)"
+  mon() {  # mon <page>
+    if [ "$debug" = "True" ] && [ -n "$key" ]; then
+      printf 'http://localhost:%s/monitor/enter/?key=%s&next=/monitor/%s/' "$api" "$key" "$1"
+    else
+      printf 'http://localhost:%s/monitor/%s/' "$api" "$1"
+    fi
+  }
   local urls=()
-  [ -n "$repo" ] && urls+=("https://github.com/${repo}/blob/${branch}/IMPLEMENTATION_PLAN.md")   # plan
-  [ -n "$api" ]  && urls+=("http://localhost:${api}/api/health/")                           # backend (live status)
-  [ -n "$repo" ] && urls+=("https://github.com/${repo}/commits/${branch}")                   # history
-  [ -n "$api" ]  && urls+=("http://localhost:${api}/admin/")                                # every table (dave / privguard123)
-  [ -n "$ui" ]   && urls+=("http://localhost:${ui}/login")                                  # login flow
+  [ -n "$repo" ] && urls+=("https://github.com/${repo}/blob/${branch}/IMPLEMENTATION_PLAN.md")   # 1 plan
+  [ -n "$api" ]  && urls+=("$(mon backend)")                                                      # 2 backend, live
+  [ -n "$repo" ] && urls+=("https://github.com/${repo}/commits/${branch}")                        # 3 commit history
+  [ -n "$api" ]  && urls+=("$(mon database)")                                                     # 4 databases, live
+  [ -n "$api" ]  && urls+=("$(mon login)")                                                        # 5 login flow, live
   for u in "${urls[@]}"; do "$opener" "$u" >/dev/null 2>&1 || true; sleep 0.3; done
 }
 

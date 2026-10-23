@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PrivGuard monitor - {% for key, label in pages.items %}{% if key == name %}{{ label }}{% endif %}{% endfor %}</title>
+<style>
+  :root { --bg:#0e1420; --card:#161e2e; --line:#243049; --text:#e6ebf5; --muted:#8a97b1; --ok:#3ecf8e; --warn:#f5b84b; --bad:#ff6b6b; --acc:#6ea8fe; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 -apple-system, "Segoe UI", Inter, sans-serif; }
+  header { display:flex; align-items:center; gap:20px; padding:14px 24px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:2; }
+  header h1 { font-size:15px; margin:0; letter-spacing:.2px; }
+  nav { display:flex; gap:6px; }
+  nav a { color:var(--muted); text-decoration:none; padding:6px 12px; border-radius:6px; }
+  nav a.on { background:var(--card); color:var(--text); box-shadow: inset 0 0 0 1px var(--line); }
+  .live { margin-left:auto; color:var(--muted); font-size:12px; display:flex; gap:8px; align-items:center; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--ok); animation:pulse 2s infinite; }
+  .dot.off { background:var(--bad); animation:none; }
+  @keyframes pulse { 50% { opacity:.35 } }
+  main { padding:24px; max-width:1280px; margin:0 auto; display:grid; gap:18px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .card .k { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.6px; }
+  .card .v { font-size:26px; font-weight:600; margin-top:4px; font-variant-numeric:tabular-nums; }
+  .card .s { color:var(--muted); font-size:12px; margin-top:2px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  section > h2 { margin:0; padding:12px 16px; font-size:13px; border-bottom:1px solid var(--line); color:var(--muted); text-transform:uppercase; letter-spacing:.6px; }
+  .scroll { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  th, td { text-align:left; padding:8px 16px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--muted); font-weight:500; font-size:12px; }
+  tr:last-child td { border-bottom:none; }
+  td.r, th.r { text-align:right; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size:12.5px; }
+  .pill { padding:2px 8px; border-radius:99px; font-size:12px; background:#202b42; }
+  .s2 { color:var(--ok) } .s3 { color:var(--acc) } .s4 { color:var(--warn) } .s5 { color:var(--bad) }
+  .empty { padding:22px 16px; color:var(--muted); }
+  .flow { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px; padding:16px; counter-reset:step; }
+  .step { border:1px solid var(--line); border-radius:10px; padding:12px 14px; position:relative; background:#121a29; }
+  .step::before { counter-increment:step; content:counter(step); position:absolute; top:-9px; left:12px; background:var(--acc); color:#0e1420; border-radius:99px; width:20px; height:20px; display:grid; place-items:center; font-size:12px; font-weight:700; }
+  .step b { display:block; margin-bottom:2px; } .step span { color:var(--muted); font-size:12.5px; } .step em { display:block; margin-top:8px; font-style:normal; font-size:20px; font-weight:600; }
+  .bar { height:6px; background:#202b42; border-radius:4px; overflow:hidden; min-width:90px; } .bar i { display:block; height:100%; background:var(--acc); }
+  a.link { color:var(--acc); }
+</style>
+</head>
+<body data-page="{{ name }}">
+<header>
+  <h1>PrivGuard monitor</h1>
+  <nav>
+    {% for key, label in pages.items %}<a href="/monitor/{{ key }}/" class="{% if key == name %}on{% endif %}">{{ label }}</a>{% endfor %}
+  </nav>
+  <div class="live"><span class="dot" id="dot"></span><span id="stamp">connecting</span></div>
+</header>
+<main id="root"></main>
+<script>
+"use strict";
+const PAGE = document.body.dataset.page;
+const root = document.getElementById("root");
+
+// Build DOM with textContent only: paths, usernames and SQL come from users, so never as HTML.
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) { if (k === "class") el.className = v; else el.setAttribute(k, v); }
+  for (const kid of kids.flat()) el.append(kid instanceof Node ? kid : document.createTextNode(kid == null ? "" : String(kid)));
+  return el;
+}
+const card = (k, v, s) => h("div", {class:"card"}, h("div", {class:"k"}, k), h("div", {class:"v"}, v), s ? h("div", {class:"s"}, s) : "");
+const section = (title, body) => h("section", {}, h("h2", {}, title), body);
+const table = (heads, rows, empty) => rows.length
+  ? h("div", {class:"scroll"}, h("table", {}, h("thead", {}, h("tr", {}, heads.map(([t, r]) => h("th", r ? {class:"r"} : {}, t)))), h("tbody", {}, rows)))
+  : h("div", {class:"empty"}, empty);
+const td = (v, cls) => h("td", cls ? {class:cls} : {}, v);
+const clock = (t) => new Date(t * 1000).toLocaleTimeString();
+const ago = (t) => { if (!t) return "never (this session)"; const s = Math.max(0, Math.round(Date.now()/1000 - t)); return s < 60 ? s + "s ago" : Math.round(s/60) + " min ago"; };
+const bytes = (n) => n > 1e9 ? (n/1e9).toFixed(1) + " GB" : n > 1e6 ? (n/1e6).toFixed(1) + " MB" : Math.round(n/1e3) + " kB";
+const sc = (n) => "s" + String(n)[0];
+const dur = (s) => s < 120 ? s + " s" : s < 7200 ? Math.round(s/60) + " min" : (s/3600).toFixed(1) + " h";
+
+const VIEWS = {
+  backend(d) {
+    return [
+      h("div", {class:"cards"},
+        card("Health", d.errors_5xx ? "degraded" : "ok", "database ping " + d.db_ping_ms + " ms"),
+        card("Uptime", dur(d.uptime_s), "since this server started"),
+        card("Requests / min", d.requests_last_minute, d.requests_total + " in the log"),
+        card("Latency p50 / p95", (d.p50_ms ?? "–") + " / " + (d.p95_ms ?? "–") + " ms", "recent requests"),
+        card("Errors", d.errors_5xx + " server, " + d.errors_4xx + " client", "5xx / 4xx")),
+      section("Live requests (newest first)", table(
+        [["time"], ["method"], ["path"], ["status", true], ["ms", true], ["user"]],
+        d.recent.map(e => h("tr", {}, td(clock(e.t), "mono"), td(e.method, "mono"), td(e.path, "mono"),
+          td(e.status, "r mono " + sc(e.status)), td(e.ms, "r mono"), td(e.user || "–"))),
+        "No API requests yet. Use the app in the other tab and they appear here.")),
+    ];
+  },
+  database(d) {
+    const data = d.tables.filter(t => !t.system), sys = d.tables.filter(t => t.system);
+    const rows = (list) => list.map(t => h("tr", {}, td(t.name, "mono"), td(t.rows.toLocaleString(), "r mono")));
+    return [
+      h("div", {class:"cards"},
+        card("Engine", d.engine.split(" (")[0], "the app uses: " + d.current),
+        card("Databases", d.databases.length, "on this server"),
+        card("Tables", d.tables.length, data.length + " data, " + sys.length + " system"),
+        card("Rows", d.tables.reduce((n, t) => n + t.rows, 0).toLocaleString(), "across all tables")),
+      section("Databases on the server", table([["database"], ["size", true], ["connections", true]],
+        d.databases.map(x => h("tr", {}, td(x.name + (x.name === d.current ? "  ← the app" : ""), "mono"), td(bytes(x.bytes), "r mono"), td(x.connections, "r mono"))), "none")),
+      section("Budget accounts", table([["user"], ["credits left", true], ["credits total", true], ["runs used / allowed", true]],
+        d.accounts.map(a => h("tr", {}, td(a.user, "mono"), td(a.rho_remaining.toFixed(3), "r mono"), td(a.rho_total.toFixed(2), "r mono"), td(a.queries_used + " / " + (a.max_queries ?? "∞"), "r mono"))), "No accounts.")),
+      section("Latest queries", table([["#", true], ["user"], ["status"], ["rho", true], ["sql"]],
+        d.queries.map(q => h("tr", {}, td(q.id, "r mono"), td(q.user, "mono"), td(q.status), td(q.rho, "r mono"), td(q.sql, "mono"))), "No queries yet.")),
+      section("Budget ledger (hash-chained, append-only), latest entries", table([["#", true], ["user"], ["op"], ["rho change", true], ["rho after", true]],
+        d.ledger.map(e => h("tr", {}, td(e.id, "r mono"), td(e.user, "mono"), td(e.op), td(e.rho_delta.toFixed(4), "r mono"), td(e.rho_after.toFixed(4), "r mono"))), "No ledger entries yet.")),
+      section("Data tables", table([["table"], ["rows", true]], rows(data), "none")),
+      section("System tables (catalog, privacy policy, ledger, audit)", table([["table"], ["rows", true]], rows(sys), "none")),
+    ];
+  },
+  login(d) {
+    const s = d.steps;
+    const step = (title, text, n) => h("div", {class:"step"}, h("b", {}, title), h("span", {}, text), h("em", {}, n));
+    return [
+      section("How signing in works (live counts)", h("div", {class:"flow"},
+        step("Credentials sent", "The browser posts username and password to /api/auth/login/.", s.login_ok + s.login_failed),
+        step("Password checked", "Verified against the stored Argon2 hash. Wrong ones are refused.", s.login_ok + " ok / " + s.login_failed + " refused"),
+        step("Tokens issued", "A short-lived access token and a refresh token.", s.login_ok),
+        step("Token on every request", "Each API call carries the access token; the server resolves the user and role.", s.authenticated_requests),
+        step("Refresh", "When the access token expires, the refresh token gets a new one.", s.refresh_ok),
+        step("Logout", "The refresh token is blacklisted so it cannot be reused.", s.logout))),
+      section("Sign-in events (newest first)", table([["time"], ["event"], ["user"], ["status", true], ["ms", true]],
+        d.events.map(e => h("tr", {}, td(clock(e.t), "mono"), td(e.path.replace("/api/auth/", "").replace(/\/$/, "") + " " + e.method, "mono"), td(e.user || "–"), td(e.status, "r mono " + sc(e.status)), td(e.ms, "r mono"))),
+        "No sign-in activity since the server started. Sign in from the app tab.")),
+      section("Users", table([["user"], ["roles"], ["status"], ["last seen"]],
+        d.users.map(u => h("tr", {}, td(u.user, "mono"), td(u.roles.join(", ") || "–"), td(u.active ? "active" : "blocked"), td(ago(u.last_seen)))), "No users.")),
+    ];
+  },
+};
+
+async function tick() {
+  try {
+    const r = await fetch("/monitor/feed/" + PAGE + "/", {credentials: "same-origin"});
+    if (r.status === 401) { location.href = "/admin/login/?next=" + encodeURIComponent(location.pathname); return; }
+    const data = await r.json();
+    root.replaceChildren(...VIEWS[PAGE](data));
+    document.getElementById("dot").className = "dot";
+    document.getElementById("stamp").textContent = "live, updated " + new Date().toLocaleTimeString();
+  } catch (e) {
+    document.getElementById("dot").className = "dot off";
+    document.getElementById("stamp").textContent = "disconnected, retrying";
+  }
+}
+tick(); setInterval(tick, 2000);
+</script>
+</body>
+</html>

@@ -24,4 +24,5 @@ urlpatterns = [
     path("api/auth/me/", MeView.as_view(), name="me"),
     # --- REST API + DP gateway ---
     path("api/", include("api.urls")),
+    path("monitor/", include("monitor.urls")),
 ]
