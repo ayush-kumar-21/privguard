@@ -12,7 +12,7 @@ section first, then continue at the first unchecked box.
 ## Resume point
 
 > **Done: Phases 0-4 of `TEAM_PLAN.md`, and most of Phase 5 (bug bash, evaluation).**
-> **Left in Phase 5: 5.5 cutover (retire Django), 5.4 report, 5.6 demo polish, and a repo-wide
+> **Left in Phase 5: 5.4 report, 5.6 demo polish, and a repo-wide
 > `/code-review` + `/security-review` pass.**
 
 Last updated: 2026-10-21 (Ayush)
@@ -170,7 +170,7 @@ Goal: the three core contributions from the blueprint.
 - [x] 5.2 Utility evaluation — error vs. ρ curves, exported for the paper
 - [x] 5.3 Attack lab: repeat-and-average demonstrably defeated by the noise cache — v2 against the real engine in `gateway/tests/test_attacks_engine.py` (24 tests)
 - [ ] 5.4 Paper / report writing
-- [ ] 5.5 **Cutover** — retire the Django backend, compose runs engine + gateway + ui
+- [-] 5.5 **Cutover** — retire the Django backend, compose runs engine + gateway + ui. **DECIDED 2026-10-23 (Ayush): do NOT delete `backend/`.** Django stays as the demo stack; the engine and gateway run alongside it.
 - [ ] 5.6 Demo polish and final README
 
 ---
