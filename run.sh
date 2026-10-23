@@ -200,7 +200,7 @@ open_tabs() {
   repo="$(git remote get-url origin 2>/dev/null || true)"
   repo="${repo#*://}"; repo="${repo#*@}"; repo="${repo#*[:/]}"; repo="${repo%.git}"
   case "$repo" in
-    ''|*/*/*|*[!A-Za-z0-9._/-]*|[!/]*[!/]) repo='' ;;
+    ''|/*|*/|*/*/*|*[!A-Za-z0-9._/-]*) repo='' ;;
   esac
   case "$repo" in */*) ;; *) repo='' ;; esac
   local urls=()
