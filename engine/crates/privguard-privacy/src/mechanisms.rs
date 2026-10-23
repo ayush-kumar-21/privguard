@@ -1,12 +1,27 @@
-//! Keyed deterministic noise stream and DP mechanisms. `SPEC.md` §4.4 (`IMPLEMENTATION_PLAN.md` 3.2).
+//! Keyed deterministic noise stream and exact DP mechanisms. `SPEC.md` §4.4 and A5
+//! (`IMPLEMENTATION_PLAN.md` 3.2).
 //!
 //! Mirrors `oracle/privguard_oracle/mechanisms.py` bit-for-bit:
 //! - `seed = SHA-256(server_secret || ast_hash || principal_id_be64 || salt)`
-//! - Uniform stream is `SHA-256(seed || counter_be64)` in counter mode, consumed 8 bytes
-//!   at a time, taking the top 53 bits in `[0, 1)`.
-//! - `laplace`: inverse CDF.
-//! - `gaussian`: Box–Muller with `u1` floored at `1e-12`.
-//! - `discrete_laplace`: `laplace(scale, rng).round_ties_even() as i64`.
+//! - the stream is `SHA-256(seed || counter_be64)` in counter mode, read 8 bytes at a time;
+//! - integers below `n` come from 128-bit draws by rejection, so there is no modulo bias.
+//!
+//! **No floating-point sampling.** Noise from `ln`/`cos` is not differentially private: the
+//! floats it can emit depend on the true value (Mironov, CCS 2012). Every answer is moved onto
+//! an integer grid of step `unit / GRID`, noised with the exact discrete Laplace or discrete
+//! Gaussian of Canonne, Kamath and Steinke (NeurIPS 2020, Algs. 1-3), which are integer
+//! arithmetic only, and moved back. The released value is `cells * step`, a function of an
+//! integer alone.
+
+use privguard_core::{Error, Result};
+
+/// Grid cells per `unit` (the per-privacy-unit L-infinity contribution bound).
+pub const GRID: i128 = 1024;
+
+/// Parameter ceilings keep every intermediate inside `u128`; they are reached only at a
+/// per-stage rho below ~5e-10, which is refused.
+const MAX_LAPLACE_SCALE: f64 = (1u64 << 40) as f64;
+const MAX_GAUSSIAN_VARIANCE: f64 = (1u64 << 50) as f64;
 
 const SHA256_K: [u32; 64] = [
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -100,7 +115,7 @@ pub fn derive_seed(
     sha256(&input)
 }
 
-/// Deterministic uniform `[0, 1)` stream over `SHA-256(seed || counter_be64)`.
+/// Deterministic byte stream over `SHA-256(seed || counter_be64)`, read 8 bytes at a time.
 #[derive(Debug, Clone)]
 pub struct KeyedRandom {
     seed: Vec<u8>,
@@ -128,49 +143,215 @@ impl KeyedRandom {
         self.pos = 0;
     }
 
-    /// 53-bit uniform float in `[0, 1)`, identical to `KeyedRandom.uniform` in the oracle.
-    pub fn uniform(&mut self) -> f64 {
+    pub fn next_u64(&mut self) -> u64 {
         if self.pos + 8 > 32 {
             self.refill();
         }
         let chunk = u64::from_be_bytes(self.buf[self.pos..self.pos + 8].try_into().unwrap());
         self.pos += 8;
-        ((chunk >> 11) as f64) / ((1u64 << 53) as f64)
+        chunk
+    }
+
+    /// Two consecutive 64-bit words, the first one the high half.
+    pub fn next_u128(&mut self) -> u128 {
+        let hi = u128::from(self.next_u64());
+        (hi << 64) | u128::from(self.next_u64())
+    }
+
+    /// Uniform integer in `[0, n)` by rejection (no modulo bias). `n == 1` draws nothing.
+    pub fn below(&mut self, n: u128) -> u128 {
+        assert!(n >= 1, "below(0)");
+        if n == 1 {
+            return 0;
+        }
+        // 2^128 mod n, computed without overflowing.
+        let reject = (u128::MAX % n + 1) % n;
+        loop {
+            let x = self.next_u128();
+            if x <= u128::MAX - reject {
+                return x % n;
+            }
+        }
     }
 }
 
-/// Sample `Laplace(0, scale)` by inverse CDF (`SPEC.md` §4.4).
-pub fn laplace(scale: f64, rng: &mut KeyedRandom) -> f64 {
-    if scale <= 0.0 {
-        return 0.0;
+// --- exact samplers (Canonne, Kamath & Steinke 2020) -------------------------------------
+
+/// Bernoulli(exp(-p/q)) for 0 <= p <= q (Alg. 1).
+fn bern_unit(p: u128, q: u128, rng: &mut KeyedRandom) -> bool {
+    let mut k: u128 = 1;
+    while rng.below(q.saturating_mul(k)) < p {
+        k += 1;
     }
-    let u = rng.uniform() - 0.5;
-    if u == 0.0 {
-        return 0.0;
-    }
-    -scale * (1.0f64).copysign(u) * (1.0 - 2.0 * u.abs()).ln()
+    k % 2 == 1
 }
 
-/// Sample `N(0, sigma^2)` by Box–Muller (`SPEC.md` §4.4).
-pub fn gaussian(sigma: f64, rng: &mut KeyedRandom) -> f64 {
-    if sigma <= 0.0 {
-        return 0.0;
+/// Bernoulli(exp(-p/q)) for any p >= 0.
+fn bern_exp(mut p: u128, q: u128, rng: &mut KeyedRandom) -> bool {
+    while p > q {
+        if !bern_unit(1, 1, rng) {
+            return false;
+        }
+        p -= q;
     }
-    let u1 = rng.uniform().max(1e-12);
-    let u2 = rng.uniform();
-    let z = (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos();
-    sigma * z
+    bern_unit(p, q, rng)
 }
 
-/// Integer-valued Laplace noise for counts (`round_ties_even`, matching Python `round`).
-pub fn discrete_laplace(scale: f64, rng: &mut KeyedRandom) -> i64 {
-    let x = laplace(scale, rng);
-    let r = x.round();
-    if (x - r).abs() == 0.5 && (r as i64) % 2 != 0 {
-        x.trunc() as i64
+/// `Z` with `P(Z = z)` proportional to `exp(-|z| / t)`, `t` a positive integer (Alg. 2, s = 1).
+pub fn dlap(t: u128, rng: &mut KeyedRandom) -> i128 {
+    assert!(t >= 1, "dlap scale must be positive");
+    loop {
+        let u = rng.below(t);
+        if !bern_exp(u, t, rng) {
+            continue;
+        }
+        let mut v: u128 = 0;
+        while bern_unit(1, 1, rng) {
+            v += 1;
+        }
+        let x = (u + t * v) as i128;
+        let negative = rng.below(2) == 1;
+        if negative && x == 0 {
+            continue;
+        }
+        return if negative { -x } else { x };
+    }
+}
+
+/// `floor(sqrt(n))`.
+fn isqrt(n: u128) -> u128 {
+    let mut r = (n as f64).sqrt() as u128;
+    while r * r > n {
+        r -= 1;
+    }
+    while (r + 1) * (r + 1) <= n {
+        r += 1;
+    }
+    r
+}
+
+/// `Z` with `P(Z = z)` proportional to `exp(-z^2 / (2 variance))`, `variance` a positive
+/// integer (Alg. 3).
+pub fn dgauss(variance: u128, rng: &mut KeyedRandom) -> i128 {
+    assert!(variance >= 1, "dgauss variance must be positive");
+    let t = isqrt(variance) + 1; // floor(sigma) + 1
+    loop {
+        let y = dlap(t, rng);
+        // gamma = (|y| t - variance)^2 / (2 variance t^2)
+        let yt = y.unsigned_abs().saturating_mul(t);
+        let d = yt.abs_diff(variance);
+        let num = d.saturating_mul(d);
+        let den = 2 * variance * t * t;
+        if bern_exp(num, den, rng) {
+            return y;
+        }
+    }
+}
+
+// --- parameters: real rho -> conservative integers ---------------------------------------
+
+fn bad_rho(rho: f64) -> Error {
+    Error::policy(format!(
+        "rho must be positive, finite and not below ~5e-10 for exact sampling, got {rho}"
+    ))
+}
+
+/// Integer scale `T` with `cells / T <= sqrt(2 rho)`: pure eps no larger than rho-zCDP allows.
+fn laplace_scale(rho: f64, cells: i128) -> Result<u128> {
+    if !(rho > 0.0 && rho.is_finite()) {
+        return Err(bad_rho(rho));
+    }
+    let t = (cells as f64 / (2.0 * rho).sqrt()).ceil();
+    if t > MAX_LAPLACE_SCALE {
+        return Err(bad_rho(rho));
+    }
+    Ok((t as u128).max(1))
+}
+
+/// Integer variance `V` with `cells_sq / (2 V) <= rho`.
+fn gaussian_variance(rho: f64, cells_sq: i128) -> Result<u128> {
+    if !(rho > 0.0 && rho.is_finite()) {
+        return Err(bad_rho(rho));
+    }
+    let v = (cells_sq as f64 / (2.0 * rho)).ceil();
+    if v > MAX_GAUSSIAN_VARIANCE {
+        return Err(bad_rho(rho));
+    }
+    Ok((v as u128).max(1))
+}
+
+fn step(unit: f64) -> Result<f64> {
+    if unit > 0.0 && unit.is_finite() {
+        Ok(unit / GRID as f64)
     } else {
-        r as i64
+        Err(Error::policy("unit must be positive and finite"))
     }
+}
+
+/// Nearest grid cell, ties up (the oracle does the same; Python's `round` would not).
+fn cells_of(value: f64, step: f64) -> i128 {
+    (value / step + 0.5).floor() as i128
+}
+
+/// rho-zCDP release of `value` whose L1 sensitivity is `unit`.
+///
+/// Sensitivity in cells is `GRID + 1`: `GRID` for the data, one more for rounding `value` onto
+/// the grid.
+pub fn noisy_laplace(value: f64, unit: f64, rho: f64, rng: &mut KeyedRandom) -> Result<f64> {
+    let step = step(unit)?;
+    let cells = cells_of(value, step) + dlap(laplace_scale(rho, GRID + 1)?, rng);
+    Ok(cells as f64 * step)
+}
+
+/// [`noisy_laplace`] for an integer count, rounded back to an integer (post-processing).
+pub fn noisy_count(n: i64, unit: f64, rho: f64, rng: &mut KeyedRandom) -> Result<i64> {
+    Ok((noisy_laplace(n as f64, unit, rho, rng)? + 0.5).floor() as i64)
+}
+
+/// rho-zCDP release of one coordinate of a vector with at most `groups` coordinates each
+/// moving by at most `unit` (L2 sensitivity `sqrt(groups) * unit`).
+pub fn noisy_gaussian(
+    value: f64,
+    unit: f64,
+    groups: u32,
+    rho: f64,
+    rng: &mut KeyedRandom,
+) -> Result<f64> {
+    let step = step(unit)?;
+    let d = GRID + 1;
+    let variance = gaussian_variance(rho, i128::from(groups) * d * d)?;
+    let cells = cells_of(value, step) + dgauss(variance, rng);
+    Ok(cells as f64 * step)
+}
+
+// --- partition selection ---------------------------------------------------------------
+
+/// Noise scale and release cutoff for DP partition selection. `SPEC.md` §4.5.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PartitionCutoff {
+    /// Integer scale `T` of the discrete Laplace noise, in cells of `1 / GRID`.
+    pub scale: u128,
+    /// A single-unit group is released iff its noise is `>= cutoff`, with probability
+    /// `e^(-K/T) / (1 + e^(-1/T)) <= delta_part` (the discrete Laplace tail).
+    pub cutoff: i128,
+}
+
+/// Counts are integers, so they sit exactly on the grid and need no rounding slack:
+/// sensitivity is `GRID` cells.
+pub fn partition_cutoff(rho_part: f64, delta_part: f64) -> Result<PartitionCutoff> {
+    let t = laplace_scale(rho_part, GRID)?;
+    let tf = t as f64;
+    let k = (tf * (1.0 / (delta_part * (1.0 + (-1.0 / tf).exp()))).ln()).ceil();
+    Ok(PartitionCutoff {
+        scale: t,
+        cutoff: (k as i128).max(1),
+    })
+}
+
+/// Whether a group of `units` distinct privacy units is released.
+pub fn partition_release(units: u64, cut: &PartitionCutoff, rng: &mut KeyedRandom) -> bool {
+    let cells = i128::from(units) * GRID + dlap(cut.scale, rng);
+    cells >= GRID + cut.cutoff
 }
 
 /// Clamp `value` into `[lo, hi]`, treating `None` as unbounded.
@@ -187,7 +368,6 @@ pub fn clamp(mut value: f64, lo: Option<f64>, hi: Option<f64>) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accounting::{grouped_l2_sensitivity, laplace_scale_from_rho, sigma_from_rho};
     use crate::{CanonicalQuery, QueryFingerprint};
 
     fn canonical_query(agg: &str, col: Option<&str>, group: Option<&str>) -> CanonicalQuery {
@@ -214,8 +394,10 @@ mod tests {
         );
     }
 
+    const GOLDEN_SEED: &str = "fea9e31a56a25426bc55ac900511eae055d1f70424a000c9170d98f7c7559b4d";
+
     #[test]
-    fn uniform_laplace_gaussian_and_discrete_laplace_match_oracle_bit_for_bit() {
+    fn the_seed_matches_the_oracle() {
         let secret = b"privguard-golden-secret-v1";
         let fp = canonical_query("COUNT", None, None).fingerprint().unwrap();
         assert_eq!(
@@ -223,53 +405,191 @@ mod tests {
             "edc6f9946aed8757f617dac4a6ea3c1120f72cbaac6267577007b2db661238a5"
         );
         let seed = derive_seed(secret, fp.as_bytes(), 1, b"");
+        assert_eq!(QueryFingerprint::from_digest(seed).to_hex(), GOLDEN_SEED);
+    }
+
+    /// Golden values from `oracle/privguard_oracle/mechanisms.py`, same seed. Integer samplers
+    /// must agree exactly; the released floats must agree bit for bit.
+    #[test]
+    fn stream_and_samplers_match_oracle_exactly() {
+        let seed = hex_to_bytes32(GOLDEN_SEED);
+        let rng = || KeyedRandom::new(&seed);
+
+        let mut r = rng();
+        let words: Vec<u64> = (0..4).map(|_| r.next_u64()).collect();
         assert_eq!(
-            QueryFingerprint::from_digest(seed).to_hex(),
-            "fea9e31a56a25426bc55ac900511eae055d1f70424a000c9170d98f7c7559b4d"
+            words,
+            [
+                0x83a1cb9f0bd8461f,
+                0xa1efcf9e9e0a1737,
+                0xf27bb199799b42b3,
+                0x7357681da95355dc
+            ]
+        );
+        assert_eq!(rng().next_u128(), 0x83a1cb9f0bd8461fa1efcf9e9e0a1737);
+
+        let mut r = rng();
+        let below: Vec<u128> = (0..6).map(|_| r.below(1000)).collect();
+        assert_eq!(below, [343, 668, 629, 298, 757, 859]);
+        assert_eq!(r.below(1), 0);
+        assert_eq!(r.below(1u128 << 100), 608654602713823083849953925208);
+
+        let mut r = rng();
+        let got: Vec<i128> = (0..10).map(|_| dlap(5, &mut r)).collect();
+        assert_eq!(got, [3, -7, 11, 2, -1, 6, 6, -8, -1, 1]);
+        let mut r = rng();
+        let got: Vec<i128> = (0..6).map(|_| dlap(1000, &mut r)).collect();
+        assert_eq!(got, [343, -1757, 2456, 188, 528, -337]);
+
+        let mut r = rng();
+        let got: Vec<i128> = (0..10).map(|_| dgauss(50, &mut r)).collect();
+        assert_eq!(got, [-7, 3, 8, 10, 1, 7, 8, -14, -7, -9]);
+        let mut r = rng();
+        let got: Vec<i128> = (0..5).map(|_| dgauss(100_000_000, &mut r)).collect();
+        assert_eq!(got, [-4387, 7275, -789, 9605, -7058]);
+
+        let mut r = rng();
+        let got: Vec<i64> = (0..6)
+            .map(|_| noisy_count(211, 5.0, 0.5, &mut r).unwrap())
+            .collect();
+        assert_eq!(got, [208, 215, 211, 216, 215, 195]);
+
+        let mut r = rng();
+        let got: Vec<u64> = (0..4)
+            .map(|_| {
+                noisy_laplace(123456.789, 5000.0, 0.5, &mut r)
+                    .unwrap()
+                    .to_bits()
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                0x40fd6ca760000000,
+                0x40ff1d1680000000,
+                0x40fe1c2140000000,
+                0x40ff6c6f00000000
+            ]
         );
 
-        let mut rng = KeyedRandom::new(&seed);
-        let want_uniform_bits: [u64; 6] = [
-            0x3fe0743973e17b08,
-            0x3fe43df9f3d3c142,
-            0x3fee4f76332f3368,
-            0x3fdcd5da076a54d4,
-            0x3fe563b8e52d7284,
-            0x3fc095c2729d2168,
-        ];
-        for want in want_uniform_bits {
-            assert_eq!(rng.uniform().to_bits(), want);
+        let mut r = rng();
+        let got: Vec<u64> = (0..4)
+            .map(|_| {
+                noisy_gaussian(1000.5, 5000.0, 3, 0.4, &mut r)
+                    .unwrap()
+                    .to_bits()
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                0x409aee8800000000,
+                0x40c8ce1900000000,
+                0x40b4d8ea00000000,
+                0x40b0e14a00000000
+            ]
+        );
+
+        let cut = |rho, delta| {
+            let c = partition_cutoff(rho, delta).unwrap();
+            (c.scale, c.cutoff)
+        };
+        assert_eq!(cut(0.01, 1e-2), (7241, 28328));
+        assert_eq!(cut(0.1, 1e-2), (2290, 8960));
+        assert_eq!(cut(0.5, 1e-3), (1024, 6365));
+        let c = partition_cutoff(0.1, 1e-2).unwrap();
+        let mut r = rng();
+        let cells: Vec<i128> = (0..4).map(|_| 3 * GRID + dlap(c.scale, &mut r)).collect();
+        assert_eq!(cells, [3715, -575, 8138, 4474]);
+    }
+
+    #[test]
+    fn samplers_follow_their_exact_distributions() {
+        let n = 40_000usize;
+        let mut r = KeyedRandom::new(b"dlap-pmf");
+        let t = 3f64;
+        let c = (1.0 - (-1.0 / t).exp()) / (1.0 + (-1.0 / t).exp());
+        let draws: Vec<i128> = (0..n).map(|_| dlap(3, &mut r)).collect();
+        for z in -4i128..=4 {
+            let want = c * (-(z.abs() as f64) / t).exp();
+            let got = draws.iter().filter(|&&d| d == z).count() as f64 / n as f64;
+            assert!(
+                (got - want).abs() < 5.0 * (want * (1.0 - want) / n as f64).sqrt(),
+                "dlap z={z}: {got} vs {want}"
+            );
         }
 
-        let mut rng = KeyedRandom::new(&seed);
-        let want_laplace_bits: [u64; 6] = [
-            0x3fc26c359eac7067,
-            0x3ff8a52122bbbba4,
-            0x40267b1fc1c2daa0,
-            0xbfe0a94f7b7fb735,
-            0x40006e1055148d81,
-            0xc01b01f7fd9467a6,
-        ];
-        for want in want_laplace_bits {
-            assert_eq!(laplace(5.0, &mut rng).to_bits(), want);
+        let var = 9f64;
+        let mut r = KeyedRandom::new(b"dgauss-pmf");
+        let draws: Vec<i128> = (0..n).map(|_| dgauss(9, &mut r)).collect();
+        let norm: f64 = (-60i32..=60)
+            .map(|z| (-(z * z) as f64 / (2.0 * var)).exp())
+            .sum();
+        for z in -6i128..=6 {
+            let want = (-((z * z) as f64) / (2.0 * var)).exp() / norm;
+            let got = draws.iter().filter(|&&d| d == z).count() as f64 / n as f64;
+            assert!(
+                (got - want).abs() < 5.0 * (want * (1.0 - want) / n as f64).sqrt(),
+                "dgauss z={z}: {got} vs {want}"
+            );
         }
+    }
 
-        let mut rng = KeyedRandom::new(&seed);
-        let want_gaussian_bits: [u64; 6] = [
-            0xc01e0cf24a1db8f5,
-            0xc0084ac3c41239e1,
-            0x4017dd977eb825ce,
-            0xc02dfbfd63a1900b,
-            0xc025898459851e77,
-            0xc028823797a0c614,
-        ];
-        for want in want_gaussian_bits {
-            assert_eq!(gaussian(9.682458365518542, &mut rng).to_bits(), want);
+    /// Mironov (2012): the released float must not depend on the input's low-order bits.
+    #[test]
+    fn released_values_lie_on_the_grid_whatever_the_input() {
+        let (unit, rho) = (5000.0, 0.3);
+        let step = unit / GRID as f64;
+        for i in 0..200u32 {
+            for value in [0.1, 0.1 + 2f64.powi(-40), 1234.5678, 1234.5678 + 1e-9] {
+                let seed = i.to_be_bytes();
+                let out = noisy_laplace(value, unit, rho, &mut KeyedRandom::new(&seed)).unwrap();
+                assert_eq!((out / step).round() * step, out);
+                let out =
+                    noisy_gaussian(value, unit, 3, rho, &mut KeyedRandom::new(&seed)).unwrap();
+                assert_eq!((out / step).round() * step, out);
+            }
         }
+    }
 
-        let mut rng = KeyedRandom::new(&seed);
-        let got_discrete: Vec<i64> = (0..8).map(|_| discrete_laplace(5.0, &mut rng)).collect();
-        assert_eq!(got_discrete, vec![0, 2, 11, -1, 2, -7, -3, 0]);
+    #[test]
+    fn parameters_round_toward_more_noise() {
+        for rho in [0.001, 0.05, 0.3, 2.0, 4.0] {
+            let t = laplace_scale(rho, GRID + 1).unwrap();
+            assert!((GRID + 1) as f64 / t as f64 <= (2.0 * rho).sqrt() + 1e-12);
+            let cells_sq = 3 * (GRID + 1) * (GRID + 1);
+            let v = gaussian_variance(rho, cells_sq).unwrap();
+            assert!(cells_sq as f64 / (2.0 * v as f64) <= rho + 1e-12);
+        }
+    }
+
+    #[test]
+    fn invalid_or_tiny_rho_is_refused() {
+        let mut r = KeyedRandom::new(b"r");
+        for rho in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert!(noisy_laplace(1.0, 10.0, rho, &mut r).is_err());
+            assert!(noisy_gaussian(1.0, 10.0, 1, rho, &mut r).is_err());
+        }
+        assert!(noisy_gaussian(1.0, 10.0, 1, 1e-12, &mut r).is_err());
+        assert!(noisy_laplace(1.0, 0.0, 0.5, &mut r).is_err());
+    }
+
+    #[test]
+    fn rounding_ties_go_up_like_the_oracle() {
+        assert_eq!(cells_of(0.5, 1.0), 1);
+        assert_eq!(cells_of(-0.5, 1.0), 0);
+        assert_eq!(cells_of(1.5, 1.0), 2);
+    }
+
+    #[test]
+    fn partition_cutoff_keeps_single_unit_release_under_delta() {
+        for (rho, delta) in [(0.01, 1e-2), (0.1, 1e-2), (0.5, 1e-3)] {
+            let c = partition_cutoff(rho, delta).unwrap();
+            let t = c.scale as f64;
+            let tail = |k: i128| (-(k as f64) / t).exp() / (1.0 + (-1.0 / t).exp());
+            assert!(tail(c.cutoff) <= delta * (1.0 + 1e-9));
+            assert!(tail(c.cutoff - 1) > delta, "cutoff is not the smallest");
+        }
     }
 
     fn hex_to_bytes32(hex: &str) -> [u8; 32] {
@@ -281,7 +601,7 @@ mod tests {
     }
 
     #[test]
-    fn golden_query_draws_match_oracle_bit_for_bit() {
+    fn golden_query_fingerprints_and_seeds_match_oracle() {
         let secret = b"privguard-golden-secret-v1";
 
         // Verify all 20 golden query fingerprints and derived seeds match oracle/tests/golden/queries.json
@@ -392,254 +712,6 @@ mod tests {
             assert_eq!(QueryFingerprint::from_digest(digest).to_hex(), want_fp);
             let seed = derive_seed(secret, &digest, 1, b"");
             assert_eq!(QueryFingerprint::from_digest(seed).to_hex(), want_seed);
-        }
-
-        // Q1-Q5: discrete_laplace ungrouped counts
-        let dl_vectors: [(&str, f64, i64); 5] = [
-            (
-                "fea9e31a56a25426bc55ac900511eae055d1f70424a000c9170d98f7c7559b4d",
-                5.0,
-                0,
-            ),
-            (
-                "435f44e59ae518f7cd6e14e8fb91e97c9e6bc72efd1b4bcddf2e6e56845fb7c8",
-                5.0,
-                -10,
-            ),
-            (
-                "233805eff32c72c996a3cb141cf9724ab46cb660240460681f9a0fcdb269c0ca",
-                laplace_scale_from_rho(5.0, 0.25),
-                -17,
-            ),
-            (
-                "c5f110e9bfe1e93511fe73f3b058ec7485fc3fefb0c36ce63bcfcd32c6f14eed",
-                laplace_scale_from_rho(2.0, 1.0),
-                1,
-            ),
-            (
-                "d3adf55cdb236e448565a5b134d81cc2e96e73fd88a694c802f91e497a874772",
-                5.0,
-                1,
-            ),
-        ];
-        for (seed_hex, scale, want) in dl_vectors {
-            let seed = hex_to_bytes32(seed_hex);
-            assert_eq!(discrete_laplace(scale, &mut KeyedRandom::new(&seed)), want);
-        }
-
-        // Q6-Q9: laplace ungrouped sums (bit-for-bit IEEE-754)
-        let sum_vectors: [(&str, f64, u64); 4] = [
-            (
-                "1a4a1b93307c4f7d96372e5d0ec6228f7c59bf0c69e5699833ce8082b13a29cc",
-                laplace_scale_from_rho(5000.0, 0.5),
-                0x40b383641a3ea9cc,
-            ),
-            (
-                "06037cdcbb55e12ecdf8d9076d03cde8064d86bc544dfd0fb76d120a813c4279",
-                laplace_scale_from_rho(5000.0, 0.5),
-                0xc0b0647a88713894,
-            ),
-            (
-                "eccca5925170f01e525fe4e70ae5cd04791915fb5bdc9ea0da4803b5884810ce",
-                laplace_scale_from_rho(5000.0, 0.5),
-                0x4092f343feaf7ab3,
-            ),
-            (
-                "1a4a1b93307c4f7d96372e5d0ec6228f7c59bf0c69e5699833ce8082b13a29cc",
-                laplace_scale_from_rho(1600.0, 3.0),
-                0x408464c2de703b31,
-            ),
-        ];
-        for (seed_hex, scale, want_bits) in sum_vectors {
-            let seed = hex_to_bytes32(seed_hex);
-            assert_eq!(
-                laplace(scale, &mut KeyedRandom::new(&seed)).to_bits(),
-                want_bits
-            );
-        }
-
-        // Q10-Q12: AVG dual laplace draws (bit-for-bit IEEE-754)
-        let avg_vectors: [(&str, f64, f64, u64, u64); 3] = [
-            (
-                "701588ec87743dccbe0b34769d57351c96fee5cbf8a90ba404bd385b989b707a",
-                laplace_scale_from_rho(5000.0, 0.25),
-                laplace_scale_from_rho(5.0, 0.25),
-                0x40a075ff2ea657c1,
-                0xc0201f8a921d2f0a,
-            ),
-            (
-                "aaaaadf1a01c685e635a5cca1e743e0fb32354f3b3361dca46cb58af7b9ea7c8",
-                laplace_scale_from_rho(5000.0, 0.25),
-                laplace_scale_from_rho(5.0, 0.25),
-                0xc0ccdb230e47a07b,
-                0xc02be4adfb16007c,
-            ),
-            (
-                "4a8d24c198a9f9028efad89cbf901e50b44fd3feedaf0cb68c4401bb84d6723d",
-                laplace_scale_from_rho(3200.0, 1.28),
-                laplace_scale_from_rho(4.0, 1.28),
-                0xc09e0a0ca819a6b4,
-                0xbfdf737b5af9625a,
-            ),
-        ];
-        for (seed_hex, s_sum, s_cnt, want_sum, want_cnt) in avg_vectors {
-            let seed = hex_to_bytes32(seed_hex);
-            let mut rng = KeyedRandom::new(&seed);
-            assert_eq!(laplace(s_sum, &mut rng).to_bits(), want_sum);
-            assert_eq!(laplace(s_cnt, &mut rng).to_bits(), want_cnt);
-        }
-
-        // Q13-Q20: Grouped partition selection (laplace) + aggregate (gaussian) draws (bit-for-bit IEEE-754)
-        type GroupedVector<'a> = (&'a str, f64, u32, f64, [u64; 4], &'a [u64]);
-        let grouped_vectors: [GroupedVector<'_>; 8] = [
-            (
-                "6fff473f3aee8b4d13bd524960640b65f6a84c3b517c8776d114039d06ab323f",
-                0.5,
-                3,
-                5.0,
-                [
-                    0x3fdb327fb7e11a39,
-                    0x3fbd6f29f143aea0,
-                    0x400ed22b4bf22acd,
-                    0x3ff98d95f69406ba,
-                ],
-                &[
-                    0xc013066765431615,
-                    0x401e3bc4f73679d0,
-                    0xc02a1b9d98b73bd2,
-                    0x402fee66d6e67250,
-                ],
-            ),
-            (
-                "561f494b3ab005265f2f6e6b54fa118f22fd9cab4b28bfbea6d367909c318e9d",
-                0.5,
-                3,
-                5.0,
-                [
-                    0x400e324969988546,
-                    0x3ffc25b5b1964e99,
-                    0xbff0059e2aee70a7,
-                    0x40038b6925ffe8ed,
-                ],
-                &[0xc009799d01d61482, 0xc02707da326c0b9f, 0xc02b83a5814392b2],
-            ),
-            (
-                "6fff473f3aee8b4d13bd524960640b65f6a84c3b517c8776d114039d06ab323f",
-                4.0,
-                3,
-                5.0,
-                [
-                    0x3fc33b3aed75ddc9,
-                    0x3fa4d02a5abb4f95,
-                    0x3ff5cb312d2074f4,
-                    0x3fe21199844401e9,
-                ],
-                &[
-                    0xbffae7ca8e4e0244,
-                    0x400560d7eabcc246,
-                    0xc0127607a8f3840e,
-                    0x4016942cc5539185,
-                ],
-            ),
-            (
-                "3a459db7222e4024bc6e2f7dddde95e0341deb6f4a0286c50af9d39cfa4013e8",
-                0.5,
-                3,
-                5.0,
-                [
-                    0xc021083cf8f02d72,
-                    0x3fcf820021faeae6,
-                    0x4000db5545f8513d,
-                    0x3fee88dfe2d225f8,
-                ],
-                &[
-                    0xc02f45e921414353,
-                    0xc02ae51734921aac,
-                    0xc0179f3d954f30a5,
-                    0xc02a6f727feb22ee,
-                ],
-            ),
-            (
-                "fdef3a088dbf0471595d6ae03a2036f05bff06e9cedc2a76b324e834b87ccbb3",
-                0.5,
-                3,
-                5000.0,
-                [
-                    0x40216ff956af8cc2,
-                    0x3ff4334ad3d06b9f,
-                    0xbfe7375dae7890d1,
-                    0xbff1c5879e83a40a,
-                ],
-                &[
-                    0x40d21b660729a3a9,
-                    0xc0be011f99d2e009,
-                    0x40980fd1aa0d1c45,
-                    0x40b2af006c08f419,
-                ],
-            ),
-            (
-                "c48b5210f9df41217cbef3ccf5a0444bcca91208cacfed1b216e3b15313a689f",
-                1.0,
-                3,
-                5000.0,
-                [
-                    0xbfeb6b9c297acd8c,
-                    0x400963d4b8a39258,
-                    0x3fe9aac9b9ebd0a5,
-                    0x4011007624e37542,
-                ],
-                &[
-                    0xc083fb801933dad3,
-                    0x40a60239612ea138,
-                    0xc0564621cd2ed1b7,
-                    0x406cfae0980e4821,
-                ],
-            ),
-            (
-                "fdef3a088dbf0471595d6ae03a2036f05bff06e9cedc2a76b324e834b87ccbb3",
-                0.5,
-                1,
-                800.0,
-                [
-                    0x40216ff956af8cc2,
-                    0x3ff4334ad3d06b9f,
-                    0xbfe7375dae7890d1,
-                    0xbff1c5879e83a40a,
-                ],
-                &[0x409ac332481dca7e, 0xc0862c6a10c62809],
-            ),
-            (
-                "561f494b3ab005265f2f6e6b54fa118f22fd9cab4b28bfbea6d367909c318e9d",
-                0.02,
-                3,
-                5.0,
-                [
-                    0x4032df6de1ff534c,
-                    0x402197918efdf120,
-                    0xc0140705b5aa0cd1,
-                    0x40286e436f7fe328,
-                ],
-                &[0xc02fd804424b99a1, 0xc04cc9d0bf070e86],
-            ),
-        ];
-        for (seed_hex, rho, max_g, delta1, want_part, want_agg) in grouped_vectors {
-            let seed = hex_to_bytes32(seed_hex);
-            let mut part_sid = seed.to_vec();
-            part_sid.extend_from_slice(b"partition");
-            let mut agg_sid = seed.to_vec();
-            agg_sid.extend_from_slice(b"aggregate");
-
-            let mut part_rng = KeyedRandom::new(&part_sid);
-            let mut agg_rng = KeyedRandom::new(&agg_sid);
-            let part_scale = 1.0 / (2.0 * 0.2 * rho).sqrt();
-            let sigma = sigma_from_rho(grouped_l2_sensitivity(max_g, delta1), 0.8 * rho);
-
-            for want in want_part {
-                assert_eq!(laplace(part_scale, &mut part_rng).to_bits(), want);
-            }
-            for &want in want_agg {
-                assert_eq!(gaussian(sigma, &mut agg_rng).to_bits(), want);
-            }
         }
     }
 

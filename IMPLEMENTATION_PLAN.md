@@ -200,12 +200,21 @@ Bugs found and not yet fixed. Close one by fixing it with a regression test, the
   sqrt(G)*C*(M); Laplace at scale D1/sqrt(2*rho) is eps = sqrt(2*rho) pure DP, hence rho-zCDP;
   Gaussian at sigma = D2/sqrt(2*rho) is exactly rho-zCDP; AVG and grouped queries split rho
   and compose to the charged total. No divergence from the spec.
-- **Known limitations, not bugs (document in the report):** (1) noise is a continuous inverse-CDF
-  sample over 53-bit uniforms, so the floating-point attack on Laplace (Mironov 2012) is out of
-  scope; (2) budgets are per principal, so two colluding accounts get two independent noise
+- **Mironov attack: closed (`SPEC.md` A5).** The float Laplace/Gaussian samplers are replaced by exact
+  integer samplers (CKS20) on a grid; released values are `integer * step`. Proved by tests rather than
+  asserted: both samplers match their exact pmf, every output lies on the grid for inputs that differ in
+  the last float bits, parameters round toward more noise, and the engine agrees with the oracle
+  exactly on all 1000 differential queries.
+- **Known limitations, not bugs (document in the report):** (1) the exact samplers loop a random
+  number of times, so latency is a weak side channel (Jin et al.); the Django path pads responses to a
+  floor, the engine does not; (2) budgets are per principal, so two colluding accounts get two independent noise
   draws and their privacy loss composes; (3) `HeapScan` loads the whole table into memory;
   (4) rename is not followed by a directory fsync; (5) startup replays every executed query
-  to rebuild the overlap history, O(history x table).
+  to rebuild the overlap history, O(history x table); (6) a per-stage rho below ~5e-10 is refused.
+- **Open question for the team (not changed):** partition selection charges each group as if a unit touched
+  one group, though a unit can touch G. The Django backend corrects this (`partition_params`: per-group
+  `eps0 = sqrt(2 rho_part / G)`, and a `delta` split across G); the oracle and engine follow the frozen
+  SPEC 4.5 and do not. Fixing it changes grouped results and needs a SPEC decision.
 - Utility curves: `docs/eval/utility_vs_rho.md`. Benchmarks: `docs/eval/benchmarks.md`.
 
 ## Commands

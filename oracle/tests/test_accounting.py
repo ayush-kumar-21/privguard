@@ -11,12 +11,12 @@ import math
 
 import pytest
 
+from privguard_oracle.mechanisms import partition_cutoff
 from privguard_oracle.accounting import (
     eps0_from_rho,
     eps_from_rho,
     grouped_l2_sensitivity,
     laplace_scale_from_rho,
-    partition_threshold,
     sigma_from_rho,
 )
 
@@ -75,22 +75,23 @@ def test_grouped_l2_uses_sqrt_of_the_group_bound():
     assert grouped_l2_sensitivity(1, 3.0) == pytest.approx(3.0)
 
 
-def test_partition_threshold_is_finite_and_above_one():
-    tau = partition_threshold(0.01, 1e-2)
-    assert math.isfinite(tau) and tau > 1.0
+def test_partition_cutoff_is_positive_and_integral():
+    t, k = partition_cutoff(0.01, 1e-2)
+    assert isinstance(t, int) and isinstance(k, int) and t >= 1 and k >= 1
 
 
 def test_a_mechanism_delta_here_suppresses_everything():
     # Regression guard for a real bug: passing the mechanism delta (1e-9)
-    # instead of the partition delta (1e-2) drives tau so high every group is
-    # dropped. It must visibly explode rather than quietly "work".
-    sane = partition_threshold(0.01, 1e-2)
-    wrong = partition_threshold(0.01, 1e-9)
-    assert wrong > 4.0 * sane
+    # instead of the partition delta (1e-2) drives the cutoff so high every group
+    # is dropped. It must visibly explode rather than quietly "work".
+    _, sane = partition_cutoff(0.01, 1e-2)
+    _, wrong = partition_cutoff(0.01, 1e-9)
+    assert wrong > 4 * sane
 
 
-def test_zero_partition_budget_suppresses_everything():
-    assert math.isinf(partition_threshold(0.0, 1e-2))
+def test_zero_partition_budget_is_refused():
+    with pytest.raises(ValueError):
+        partition_cutoff(0.0, 1e-2)
 
 
 # ------------------------------------------------------------------ goldens
@@ -103,7 +104,9 @@ def test_golden_values_shared_with_the_rust_engine():
     assert laplace_scale_from_rho(5.0, 0.05) == pytest.approx(15.811388300841896, rel=1e-12)
     assert eps_from_rho(0.05, 1e-6) == pytest.approx(1.71225813626911, rel=1e-12)
     assert eps0_from_rho(0.05) == pytest.approx(0.31622776601683794, rel=1e-12)
-    assert partition_threshold(0.01, 1e-2) == pytest.approx(28.6621799529602, rel=1e-12)
+    assert partition_cutoff(0.01, 1e-2) == (7241, 28328)
+    assert partition_cutoff(0.1, 1e-2) == (2290, 8960)
+    assert partition_cutoff(0.5, 1e-3) == (1024, 6365)
 
 
 def test_sigma_and_laplace_scale_coincide_by_construction():

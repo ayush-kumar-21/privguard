@@ -64,24 +64,10 @@ pub fn grouped_l2_sensitivity(max_groups: u32, per_group_delta1: f64) -> f64 {
     (max_groups as f64).sqrt() * per_group_delta1
 }
 
-/// Partition-selection threshold τ. `SPEC.md` §4.5.
-///
-/// A group is released iff `noisy_distinct_units > τ`. `delta_partition` is a
-/// per-partition knob chosen from the candidate-partition count — passing the
-/// mechanism's own δ here suppresses every group, which is a bug that has
-/// bitten this codebase before.
-pub fn partition_threshold(rho_partition: f64, delta_partition: f64) -> f64 {
-    let eps_part = eps0_from_rho(rho_partition);
-    if eps_part <= 0.0 {
-        return f64::INFINITY;
-    }
-    let scale = 1.0 / eps_part;
-    1.0 + scale * (1.0 / (2.0 * delta_partition)).ln()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mechanisms::partition_cutoff;
 
     /// Tolerance for float identities. Generous enough for `sqrt`/`ln` round
     /// trips, tight enough that a wrong formula fails.
@@ -174,25 +160,24 @@ mod tests {
     }
 
     #[test]
-    fn partition_threshold_is_finite_and_above_one() {
-        // τ = 1 + b·ln(1/(2δ)) with δ = 1e-2 ⇒ ln(50) ≈ 3.912 > 0, so τ > 1.
-        let tau = partition_threshold(0.01, 1e-2);
-        assert!(tau.is_finite() && tau > 1.0, "tau = {tau}");
+    fn partition_cutoff_is_positive() {
+        let c = partition_cutoff(0.01, 1e-2).unwrap();
+        assert!(c.scale >= 1 && c.cutoff >= 1);
     }
 
     #[test]
     fn a_tiny_delta_partition_suppresses_everything() {
-        // Regression guard for a real bug: passing the mechanism δ (1e-9)
-        // instead of the partition δ (1e-2) drives τ so high that every group
-        // is dropped. The threshold must visibly explode, not quietly work.
-        let sane = partition_threshold(0.01, 1e-2);
-        let wrong = partition_threshold(0.01, 1e-9);
-        assert!(wrong > 4.0 * sane, "sane={sane}, wrong={wrong}");
+        // Regression guard for a real bug: passing the mechanism δ (1e-9) instead of the
+        // partition δ (1e-2) drives the cutoff so high that every group is dropped. It must
+        // visibly explode, not quietly work.
+        let sane = partition_cutoff(0.01, 1e-2).unwrap().cutoff;
+        let wrong = partition_cutoff(0.01, 1e-9).unwrap().cutoff;
+        assert!(wrong > 4 * sane, "sane={sane}, wrong={wrong}");
     }
 
     #[test]
-    fn zero_partition_budget_suppresses_everything() {
-        assert!(partition_threshold(0.0, 1e-2).is_infinite());
+    fn zero_partition_budget_is_refused() {
+        assert!(partition_cutoff(0.0, 1e-2).is_err());
     }
 
     /// Golden values shared with the Python oracle.
@@ -207,7 +192,13 @@ mod tests {
         assert!(close(laplace_scale_from_rho(5.0, 0.05), 15.811388300841896));
         assert!(close(eps_from_rho(0.05, 1e-6), 1.71225813626911));
         assert!(close(eps0_from_rho(0.05), 0.31622776601683794));
-        assert!(close(partition_threshold(0.01, 1e-2), 28.6621799529602));
+        let cut = |rho, delta| {
+            let c = partition_cutoff(rho, delta).unwrap();
+            (c.scale, c.cutoff)
+        };
+        assert_eq!(cut(0.01, 1e-2), (7241, 28328));
+        assert_eq!(cut(0.1, 1e-2), (2290, 8960));
+        assert_eq!(cut(0.5, 1e-3), (1024, 6365));
     }
 
     #[test]
@@ -236,10 +227,9 @@ mod tests {
                 4.092725739032547,
             ),
         ];
-        for (rho, want_eps, want_eps0, want_tau) in rho_vectors {
+        for (rho, want_eps, want_eps0, _) in rho_vectors {
             assert!(close(eps_from_rho(rho, 1e-6), want_eps));
             assert!(close(eps0_from_rho(rho), want_eps0));
-            assert!(close(partition_threshold(0.2 * rho, 1e-2), want_tau));
         }
 
         let scale_vectors = [

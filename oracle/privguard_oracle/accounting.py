@@ -22,7 +22,6 @@ __all__ = [
     "eps_from_rho",
     "eps0_from_rho",
     "grouped_l2_sensitivity",
-    "partition_threshold",
 ]
 
 
@@ -71,20 +70,3 @@ def grouped_l2_sensitivity(max_groups: int, per_group_delta1: float) -> float:
     queries: an L0 bound of G groups costs sqrt(G) in L2 but a full G in L1.
     """
     return math.sqrt(max_groups) * per_group_delta1
-
-
-def partition_threshold(rho_partition: float, delta_partition: float) -> float:
-    """DP partition-selection threshold tau. `SPEC.md` §4.5.
-
-    A group is released iff its noisy distinct-unit count exceeds tau.
-
-    `delta_partition` is a per-partition knob chosen from the number of
-    candidate partitions. Passing the mechanism's own (tiny) delta here drives
-    tau so high that every group is suppressed — a bug this codebase has
-    actually shipped, hence the explicit test for it.
-    """
-    eps_part = eps0_from_rho(rho_partition)
-    if eps_part <= 0:
-        return math.inf
-    scale = 1.0 / eps_part
-    return 1.0 + scale * math.log(1.0 / (2.0 * delta_partition))

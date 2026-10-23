@@ -151,8 +151,17 @@ async fn a_client_can_log_in_run_a_private_count_and_see_it_charged() {
 
     let r = c.query("SELECT COUNT(*) FROM visits").await;
     assert_eq!(tags(&r), [b'T', b'D', b'N', b'C', b'Z']);
-    // The golden oracle answer for count_all (seed, rho 0.5) is 196.
-    assert_eq!(cells(&r[1]), [Some("196".to_string())]);
+    // The oracle's committed answer for count_all (same seed, rho 0.5).
+    let want = expected("count_all")
+        .get("rows")
+        .unwrap()
+        .as_array()
+        .unwrap()[0]
+        .get("value")
+        .unwrap()
+        .as_i64()
+        .unwrap();
+    assert_eq!(cells(&r[1]), [Some(want.to_string())]);
     assert!(text(&r[3]).starts_with("SELECT 1"));
     let n = notice_json(&r);
     assert_eq!(n.get("status").unwrap().as_str(), Some("executed"));

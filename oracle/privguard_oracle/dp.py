@@ -23,10 +23,18 @@ from .accounting import (
     eps_from_rho,
     grouped_l2_sensitivity,
     laplace_scale_from_rho,
-    partition_threshold,
     sigma_from_rho,
 )
-from .mechanisms import KeyedRandom, clamp, discrete_laplace, gaussian, laplace
+from .mechanisms import (
+    GRID,
+    KeyedRandom,
+    clamp,
+    noisy_count,
+    noisy_gaussian,
+    noisy_laplace,
+    partition_cells,
+    partition_cutoff,
+)
 from .spec import PRIVACY_UNIT, ColumnPolicy, DPQueryError, QuerySpec, TablePolicy
 
 __all__ = ["DPResult", "execute", "apply_filters", "contribution_bound", "true_aggregate"]
@@ -192,13 +200,13 @@ def _scalar(
     if spec.agg == "COUNT":
         sensitivity = float(C)
         scale = laplace_scale_from_rho(sensitivity, rho)
-        value = agg["n"] + discrete_laplace(scale, rng)
+        value = noisy_count(agg["n"], sensitivity, rho, rng)
         return [{"value": round(value, 4)}], sensitivity, scale, "discrete_laplace"
 
     if spec.agg == "SUM":
         sensitivity = C * M
         scale = laplace_scale_from_rho(sensitivity, rho)
-        value = agg["total"] + laplace(scale, rng)
+        value = noisy_laplace(agg["total"], sensitivity, rho, rng)
         return [{"value": round(value, 4)}], sensitivity, scale, "laplace"
 
     # AVG = noisy_sum / max(noisy_count, 1), budget split 50/50 (`SPEC.md` §4.3).
@@ -208,8 +216,8 @@ def _scalar(
     sum_sens, cnt_sens = C * M, float(C)
     sum_scale = laplace_scale_from_rho(sum_sens, rho_half)
     cnt_scale = laplace_scale_from_rho(cnt_sens, rho_half)
-    noisy_sum = agg["total"] + laplace(sum_scale, rng)
-    noisy_cnt = agg["n"] + laplace(cnt_scale, rng)
+    noisy_sum = noisy_laplace(agg["total"], sum_sens, rho_half, rng)
+    noisy_cnt = noisy_laplace(float(agg["n"]), cnt_sens, rho_half, rng)
     value = noisy_sum / max(noisy_cnt, 1.0)
     return [{"value": round(value, 4)}], sum_sens, sum_scale, "laplace"
 
@@ -229,8 +237,7 @@ def _grouped(
 
     rho_part = rho * PARTITION_BUDGET_FRACTION
     rho_agg = rho - rho_part
-    tau = partition_threshold(rho_part, delta_partition)
-    part_scale = 1.0 / (2.0 * rho_part) ** 0.5 if rho_part > 0 else float("inf")
+    part_scale, cutoff = partition_cutoff(rho_part, delta_partition)
 
     # Two independent sub-streams so that the partition decision and the value
     # noise cannot be correlated by an analyst who learns one of them.
@@ -244,13 +251,12 @@ def _grouped(
     released: list[dict] = []
     suppressed = 0
     for g in groups:
-        noisy_units = g["units"] + laplace(part_scale, part_rng)
-        if noisy_units <= tau:
+        if partition_cells(g["units"], part_scale, part_rng) < GRID + cutoff:
             suppressed += 1
             continue
         true_val = g["total"] if spec.agg == "SUM" else g["n"]
         released.append(
-            {spec.group_by: g[spec.group_by], "value": round(true_val + gaussian(sigma, agg_rng), 4)}
+            {spec.group_by: g[spec.group_by], "value": round(noisy_gaussian(true_val, C * per_unit_sensitivity, G, rho_agg, agg_rng), 4)}
         )
     return released, suppressed, delta2, sigma
 

@@ -16,11 +16,13 @@
 //! drains it on the first `next_row` call.
 
 use crate::accounting::{
-    eps_from_rho, grouped_l2_sensitivity, laplace_scale_from_rho, partition_threshold,
-    sigma_from_rho,
+    eps_from_rho, grouped_l2_sensitivity, laplace_scale_from_rho, sigma_from_rho,
 };
 use crate::defaults::PARTITION_BUDGET_FRACTION;
-use crate::mechanisms::{clamp, discrete_laplace, gaussian, laplace, KeyedRandom};
+use crate::mechanisms::{
+    clamp, noisy_count, noisy_gaussian, noisy_laplace, partition_cutoff, partition_release,
+    KeyedRandom,
+};
 use crate::policy::{ColumnPolicy, TablePolicy};
 use privguard_core::{Error, Result, Row, RowSource, Value};
 use std::cmp::Ordering;
@@ -240,7 +242,8 @@ pub struct PartitionConfig {
 
 /// DP partition selection. `SPEC.md` §4.5.
 ///
-/// A group survives iff `distinct_units + Laplace(b) > τ`. Rows of suppressed groups are
+/// A group survives iff `distinct_units` plus exact discrete-Laplace noise clears the cutoff
+/// (`partition_cutoff`). Rows of suppressed groups are
 /// dropped; their count is reported through the counter returned by
 /// [`suppressed_counter`](Self::suppressed_counter) (identities are never released).
 pub struct PartitionSelect<S: RowSource> {
@@ -279,19 +282,17 @@ impl<S: RowSource> PartitionSelect<S> {
             entry.1.push(row);
         }
 
-        let tau = partition_threshold(cfg.rho_part, cfg.delta_part);
-        let scale = 1.0 / (2.0 * cfg.rho_part).sqrt();
+        let cut = partition_cutoff(cfg.rho_part, cfg.delta_part)?;
         let mut seed = cfg.seed.clone();
         seed.extend_from_slice(b"partition");
         let mut rng = KeyedRandom::new(&seed);
 
         let mut released = Vec::new();
         for (_, (units, rows)) in groups {
-            let noisy = units.len() as f64 + laplace(scale, &mut rng);
-            if noisy <= tau {
-                self.suppressed.fetch_add(1, AtomicOrdering::Relaxed);
-            } else {
+            if partition_release(units.len() as u64, &cut, &mut rng) {
                 released.extend(rows);
+            } else {
+                self.suppressed.fetch_add(1, AtomicOrdering::Relaxed);
             }
         }
         Ok(released)
@@ -429,8 +430,9 @@ impl<S: RowSource> DpAggregate<S> {
             }
         };
 
-        let cal = cfg.calibration()?;
+        cfg.calibration()?; // validates the configuration before any noise is drawn
         let c = f64::from(cfg.table.max_rows_per_unit);
+        let m = cfg.column.map_or(1.0, |p| p.magnitude());
         let Some(gi) = cfg.group else {
             let (mut n, mut total) = (0u64, 0.0f64);
             while let Some(row) = self.input.next_row()? {
@@ -440,15 +442,14 @@ impl<S: RowSource> DpAggregate<S> {
             let mut rng = KeyedRandom::new(&cfg.seed);
             let value = match cfg.agg {
                 AggKind::Count => {
-                    return Ok(vec![vec![Value::I64(
-                        n as i64 + discrete_laplace(cal.scale, &mut rng),
-                    )]]);
+                    return Ok(vec![vec![Value::I64(noisy_count(
+                        n as i64, c, cfg.rho, &mut rng,
+                    )?)]]);
                 }
-                AggKind::Sum => total + laplace(cal.scale, &mut rng),
+                AggKind::Sum => noisy_laplace(total, c * m, cfg.rho, &mut rng)?,
                 AggKind::Avg => {
-                    let cnt_scale = laplace_scale_from_rho(c, cfg.rho / 2.0);
-                    let noisy_sum = total + laplace(cal.scale, &mut rng);
-                    let noisy_cnt = n as f64 + laplace(cnt_scale, &mut rng);
+                    let noisy_sum = noisy_laplace(total, c * m, cfg.rho / 2.0, &mut rng)?;
+                    let noisy_cnt = noisy_laplace(n as f64, c, cfg.rho / 2.0, &mut rng)?;
                     noisy_sum / noisy_cnt.max(1.0)
                 }
             };
@@ -465,7 +466,9 @@ impl<S: RowSource> DpAggregate<S> {
         let mut seed = cfg.seed.clone();
         seed.extend_from_slice(b"aggregate");
         let mut rng = KeyedRandom::new(&seed);
-        Ok(groups
+        let per_unit = if cfg.agg == AggKind::Sum { m } else { 1.0 };
+        let (_, rho_agg) = split_budget(cfg.rho);
+        groups
             .into_iter()
             .map(|(g, (n, total))| {
                 let truth = if cfg.agg == AggKind::Sum {
@@ -473,12 +476,16 @@ impl<S: RowSource> DpAggregate<S> {
                 } else {
                     n as f64
                 };
-                vec![
-                    g.0,
-                    Value::F64(round4(truth + gaussian(cal.scale, &mut rng))),
-                ]
+                let noisy = noisy_gaussian(
+                    truth,
+                    c * per_unit,
+                    cfg.table.max_groups_per_unit,
+                    rho_agg,
+                    &mut rng,
+                )?;
+                Ok(vec![g.0, Value::F64(round4(noisy))])
             })
-            .collect())
+            .collect()
     }
 }
 

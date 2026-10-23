@@ -157,9 +157,32 @@ the count at `Δ₁ = C`.
 
 | Mechanism | Used for | Sampling |
 |---|---|---|
-| `discrete_laplace` | `COUNT` | Laplace via inverse CDF, rounded to integer |
-| `laplace` | `SUM`, `AVG` scalar | inverse CDF |
-| `gaussian` | grouped aggregates | Box–Muller |
+| `discrete_laplace` | `COUNT` | exact discrete Laplace (CKS20 Alg. 2), integer arithmetic only |
+| `laplace` | `SUM`, `AVG` scalar | the same exact discrete Laplace, on a grid (below) |
+| `gaussian` | grouped aggregates | exact discrete Gaussian (CKS20 Alg. 3), on a grid |
+
+**No floating-point sampling (Amendment A5).** A noise draw made with `ln`, `cos` or a 53-bit
+uniform float can only emit some floats, and which ones depends on the true value
+(Mironov, CCS 2012; Jin et al., S&P 2022 for the Gaussian), so it does not give the
+stated guarantee. Every release instead goes through an integer grid:
+
+```
+unit  = per-privacy-unit L-infinity bound   COUNT: C    SUM: C·M    AVG: C·M (sum), C (count)
+step  = unit / 1024                          GRID = 1024 cells per unit
+cells = floor(value / step + 0.5) + Z        ties round up (not banker's)
+out   = cells · step                         a function of an integer alone
+```
+
+`Z` is `dlap(T)` for the Laplace mechanisms and `dgauss(V)` for the Gaussian, both integer-valued,
+with `T = ceil(1025 / sqrt(2ρ))` and `V = ceil(G · 1025² / (2ρ))`. Sensitivity is counted in cells as
+`GRID + 1`: `GRID` for the data, one more for rounding the value onto the grid. Both parameters round
+toward more noise, so the stated ρ is never understated (`eps' <= sqrt(2ρ)` for the Laplace,
+`rho' <= ρ` for the Gaussian). `COUNT` is rounded back to an integer afterwards, which is
+post-processing. A ρ small enough that `T > 2^40` or `V > 2^50` (a per-stage ρ below about `5e-10`) is
+refused with a policy error rather than sampled approximately.
+
+The reported `scale` and `sensitivity` stay the nominal continuous values (`Δ / sqrt(2ρ)`), so the
+catalog and ledger metadata are unchanged; the realised noise is slightly larger (rounding up).
 
 **Noise is deterministic given a seed.** The seed is
 
@@ -167,9 +190,10 @@ the count at `Δ₁ = C`.
 seed = SHA-256( server_secret ‖ ast_hash ‖ principal_id_be64 ‖ salt )
 ```
 
-and the uniform stream is `SHA-256(seed ‖ counter_be64)`, consumed 8 bytes at a
-time, taking the top 53 bits as a float in [0, 1). Grouped execution derives two
-independent sub-streams with salts `b"partition"` and `b"aggregate"`.
+and the stream is `SHA-256(seed ‖ counter_be64)`, consumed 8 bytes at a time. Integers below
+`n` are drawn from two consecutive words (high first) read as a 128-bit value, rejecting values
+at or above `2^128 - (2^128 mod n)` so there is no modulo bias; `n = 1` draws nothing. Grouped
+execution derives two independent sub-streams with salts `b"partition"` and `b"aggregate"`.
 
 Determinism is not a convenience — it is what makes the noise cache sound. A
 clock-seeded RNG would let an analyst average the noise away.
@@ -179,16 +203,18 @@ clock-seeded RNG would let an analyst average the noise away.
 Groups are not released unconditionally; a group whose membership is too small
 would itself leak. Budget splits `ρ_part = 0.2ρ`, `ρ_agg = 0.8ρ`.
 
+Counts are integers, so they sit exactly on a grid of `1/1024` and need no rounding slack:
+
 ```
-ε_part = √(2 · ρ_part)
-b_part = 1 / ε_part
-τ      = 1 + b_part · ln( 1 / (2 · δ_part) )
+T = ceil(1024 / sqrt(2 · ρ_part))                  discrete Laplace scale, in cells of 1/1024
+K = max(1, ceil(T · ln(1 / (δ_part · (1 + e^(-1/T))))))
 ```
 
-A group survives iff `distinct_units + Laplace(b_part) > τ`. `δ_part = 1e-2` —
-a per-partition knob chosen from the candidate-partition count, deliberately
-*not* the mechanism δ (using the tiny mechanism δ suppresses every group).
-Survivors are then noised with the Gaussian at `ρ_agg`.
+A group with `u` distinct units survives iff `u·1024 + dlap(T) >= 1024 + K`. For a
+single-unit group that is `P(dlap(T) >= K) = e^(-K/T) / (1 + e^(-1/T)) <= δ_part`, the exact
+discrete-Laplace tail, and `K` is the smallest such integer. `δ_part = 1e-2` is a per-partition
+knob chosen from the candidate-partition count, deliberately *not* the mechanism δ (using the
+tiny mechanism δ suppresses every group). Survivors are then noised with the Gaussian at `ρ_agg`.
 
 The count of suppressed groups is returned to the analyst; the identities are
 not.
@@ -405,3 +431,15 @@ tautology rewrite or a near-duplicate predicate set bought a second, independent
 same rows. `Engine::open` now replays every `executed` query in `sys_query` through the binder and
 `matching_row_ids` and records its row set per principal. A query that no longer binds is skipped.
 Cost: startup is O(executed queries x table size).
+
+**A5 — exact integer noise (Phase 5, Mironov).** §4.4's inverse-CDF Laplace and Box-Muller Gaussian
+are replaced by the exact discrete Laplace and discrete Gaussian of Canonne, Kamath and Steinke
+(NeurIPS 2020, Algs. 1-3) on an integer grid, and §4.5's continuous threshold `τ` by the integer
+cutoff `K`. The oracle and the engine implement the same integer algorithm and agree exactly on the
+1000-query differential fixture. What it does not cover: (1) the rejection loops run a random number
+of iterations, so latency is a weak side channel (the legacy Django path pads responses to a floor;
+the engine does not); (2) the ledger's `rho` and the per-query `scale` are still floats, but they are
+parameters, not noise draws; (3) `value / step` and the rounding use ordinary floats, and the `+1` cell
+of slack in the sensitivity is what absorbs a one-cell rounding disagreement; (4) a floating-point
+`SUM` over many rows accumulates in a fixed order, so it is deterministic but not exact. The old
+golden values are superseded; `oracle/tests/golden/*.json` were regenerated in the same change.
