@@ -195,7 +195,14 @@ open_tabs() {
   [ -n "$opener" ] || return 0
   local ui api repo
   ui="$(ui_port)"; api="$(api_port)"
-  repo="$(git remote get-url origin 2>/dev/null | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')"
+  # owner/repo from the remote, nothing else: drop scheme, userinfo (a token may live there) and
+  # host, then fail closed unless what is left is exactly owner/repo.
+  repo="$(git remote get-url origin 2>/dev/null || true)"
+  repo="${repo#*://}"; repo="${repo#*@}"; repo="${repo#*[:/]}"; repo="${repo%.git}"
+  case "$repo" in
+    ''|*/*/*|*[!A-Za-z0-9._/-]*|[!/]*[!/]) repo='' ;;
+  esac
+  case "$repo" in */*) ;; *) repo='' ;; esac
   local urls=()
   [ -n "$repo" ] && urls+=("https://github.com/${repo}/blob/main/IMPLEMENTATION_PLAN.md")   # plan
   [ -n "$api" ]  && urls+=("http://localhost:${api}/api/")                                  # backend
