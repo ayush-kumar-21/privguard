@@ -7,7 +7,7 @@ django-cors-headers>=4.9.0
 django-filter>=24.3
 
 # --- Database ---
-psycopg[binary]>=3.3.5
+psycopg[binary]>=3.3.6
 
 # --- Security ---
 argon2-cffi>=23.1
