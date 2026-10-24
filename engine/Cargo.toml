@@ -34,7 +34,7 @@ privguard-wire = { path = "crates/privguard-wire" }
 sqlparser = "0.53.0"
 # "pure": no C compiler needed; the ledger hashes a few dozen bytes per entry.
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "io-util", "macros", "sync", "time"] }
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 blake3 = { version = "1.5", features = ["pure"] }
 # Dev-only. CI builds with Rust 1.83, so these are pinned below the releases whose dependencies
 # need edition 2024 (proptest >= 1.7 via rand_xorshift 0.5, criterion's clap_lex 1.x); Cargo.lock
