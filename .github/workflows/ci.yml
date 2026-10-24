@@ -28,7 +28,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
 
       - name: Run the oracle test suite
         run: bash ./run.sh oracle
@@ -56,7 +56,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
 
       # The pgwire tests spawn the real daemon and drive it through the HTTP API. Same
       # toolchain pin as the engine job.
