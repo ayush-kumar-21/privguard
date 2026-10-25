@@ -10,7 +10,7 @@ django-filter>=26.2
 psycopg[binary]>=3.3.6
 
 # --- Security ---
-argon2-cffi>=23.1
+argon2-cffi>=25.1.0
 
 # --- DP query layer ---
 sqlglot>=30.24.0
