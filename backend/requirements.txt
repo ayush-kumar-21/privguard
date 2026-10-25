@@ -13,7 +13,7 @@ psycopg[binary]>=3.3.5
 argon2-cffi>=23.1
 
 # --- DP query layer ---
-sqlglot>=30.22.0
+sqlglot>=30.24.0
 numpy>=2.5.4
 scipy>=1.18.1
 
