@@ -227,7 +227,7 @@ Bugs found and not yet fixed. Close one by fixing it with a regression test, the
 | `run.bat engine` | build and test the Rust engine in Docker |
 | `run.bat data` | regenerate the SafeHealth CSVs into `data/safehealth/` |
 
-Rust needs no host toolchain — `engine/Dockerfile` pins `rust:1.83-slim` and CI
+Rust needs no host toolchain — `engine/Dockerfile` pins `rust:1.97-slim` and CI
 pins the same version, so a green local run means a green CI.
 
 ## Conventions
