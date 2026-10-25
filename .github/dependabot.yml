@@ -7,6 +7,14 @@ updates:
     groups:
       npm-minor-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # Each needs a migration, not a version bump (see IMPLEMENTATION_PLAN.md, "Held back").
+      # monaco-editor 0.53+ moved the ESM paths the SQL console imports.
+      - dependency-name: "monaco-editor"
+        versions: [">=0.53.0"]
+      # tailwindcss 4 replaces the PostCSS plugin, the @tailwind directives and the config model.
+      - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "pip"
     directory: "/backend"

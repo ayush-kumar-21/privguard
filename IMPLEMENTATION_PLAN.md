@@ -179,7 +179,8 @@ Goal: the three core contributions from the blueprint.
 
 Bugs found and not yet fixed. Close one by fixing it with a regression test, then tick it here.
 
-- [ ] **P0-2b** 5 high + 2 moderate `npm audit` findings remain after `npm audit fix`. All are build-time and come through `tailwindcss` 3.x (`braces`, `micromatch`, `fast-glob`, `chokidar`, `postcss-nested`); the only fix is the Tailwind 3 -> 4 major upgrade. `npm audit --audit-level=high` in CI stays red until it lands. Found 2026-10-21 (Sugeshkumar).
+- [ ] **Held back from the consolidated dependency PR** (each needs its own change, not a bump): **monaco-editor 0.57** (the SQL console imports `monaco-editor/esm/vs/editor/editor.all` and `basic-languages/pgsql`, which moved) and **tailwindcss 4** (new PostCSS plugin, `@tailwind` directives replaced by `@import "tailwindcss"`, JS config model, changed default borders/shadows/rings: needs visual review). Dependabot is told to ignore both in `.github/dependabot.yml` until then. Tailwind 4 would also clear the dev-only npm audit findings.
+- [ ] **P0-2b** (Since the consolidated dependency PR: `npm audit --omit=dev` is clean and the full audit is down to 3 moderate, dev only.) Originally: 5 high + 2 moderate `npm audit` findings remained after `npm audit fix`. All are build-time and come through `tailwindcss` 3.x (`braces`, `micromatch`, `fast-glob`, `chokidar`, `postcss-nested`); the only fix is the Tailwind 3 -> 4 major upgrade. `npm audit --audit-level=high` in CI stays red until it lands. Found 2026-10-21 (Sugeshkumar).
 
 ## Phase 4-5 findings (2026-10-21, Ayush)
 
