@@ -41,7 +41,7 @@ blake3 = { version = "1.5", features = ["pure"] }
 # holds clap at 4.5.20. Lift the pins when CI moves past 1.85.
 # Property tests (Phase 3.7); no fork/tempfile features so it stays light.
 criterion = { version = "0.5", default-features = false }
-proptest = { version = "=1.6.0", default-features = false, features = ["std"] }
+proptest = { version = "=1.12.0", default-features = false, features = ["std"] }
 
 [profile.release]
 lto = "thin"
