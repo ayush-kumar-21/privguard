@@ -66,9 +66,22 @@ matched*, with no noise. Anyone who can both run a query and read them could lea
 predicate, and even totals leak (the change in the number of charges is the number of matching
 patients). So: only the **DBA** can read per-patient budgets, summaries and chains; a DBA or superuser
 **cannot run queries**; an account **cannot hold `dba` together with a query role**; and the monitor hides
-the patient-ledger row count. Analysts get no exclusion information. Residual risks, not closed: a
-response-time difference when very many patients are charged (the 150 ms floor hides it at demo size),
-and a malicious DBA, which is outside the project's declared scope.
+the patient-ledger row count. Analysts get no exclusion information. The rule is enforced in three places: the API refuses the role combination, `run_private_query` refuses
+an administrator's query, and a Postgres trigger (`trg_separation_of_duty`) refuses the combination
+even from Django admin or raw SQL; a test fails if the trigger's role list drifts from
+`accounts/roles.py`.
+
+**Limits, and what was done about each**
+- *Timing.* Charging many patients takes longer. Response times are now bucketed: every response takes
+  at least `PRIVGUARD_MIN_RESPONSE_MS`, and a slower one is rounded up to the next doubling of it, so an
+  observer learns only the bucket. This narrows the channel, it does not remove it: above the floor the
+  bucket index still reflects the amount of work. Constant-time charging would need a fixed-size
+  ledger write per query, which does not scale. The project's declared scope excludes timing channels.
+- *A DBA who deliberately bypasses these rules.* Out of scope by the project's declaration. The
+  per-patient chains make edits to history detectable, but a database owner can disable the triggers
+  (the tamper test does exactly that) and recompute the chain; defending against that needs an external
+  anchor for the ledger heads, which is not built.
+- *Crash between charge and settle.* The patient stays charged, which errs towards more privacy.
 
 **Why this answers collusion.** A patient's total spend is capped no matter how many analyst accounts
 asked. Opening a second account no longer buys a second budget.

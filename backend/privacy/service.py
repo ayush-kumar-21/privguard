@@ -319,6 +319,20 @@ def _get_fingerprint(db, spec, ast_hash):
     return fingerprint
 
 
+def padded_duration(elapsed: float, floor: float) -> float:
+    """How long a query response should take in total, to hide how much work it did.
+
+    Up to the floor every response takes exactly the floor. A query that runs longer (many patients
+    charged, a big scan) is rounded up to the next doubling of the floor (floor, 2x, 4x, 8x ...),
+    so an observer learns only which bucket it fell in, not the exact duration.
+    """
+    if floor <= 0:
+        return 0.0
+    if elapsed <= floor:
+        return floor
+    return floor * 2 ** math.ceil(math.log2(elapsed / floor))
+
+
 def _take_run(principal, db_name: str):
     """Use one run of the principal's quota, atomically. Returns the account id once a run was
     taken, `"no_account"` when there is no quota to charge, or None when the quota is spent.
@@ -390,8 +404,8 @@ def run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAUL
             _refund_run(taken)
         raise
     finally:
-        floor_ms = float(getattr(settings, "PRIVGUARD_MIN_RESPONSE_MS", 0))
-        remaining = floor_ms / 1000.0 - (time.perf_counter() - started)
+        floor = float(getattr(settings, "PRIVGUARD_MIN_RESPONSE_MS", 0)) / 1000.0
+        remaining = padded_duration(time.perf_counter() - started, floor) - (time.perf_counter() - started)
         if remaining > 0:
             time.sleep(remaining)
 
