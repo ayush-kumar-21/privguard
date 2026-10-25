@@ -52,6 +52,18 @@ The delivery checklist and progress: [`docs/RUBRIC_COMPLETION_PLAN.md`](docs/RUB
 Security hardening of the DP gateway (findings, attack classes, fixes): [`docs/DP_HARDENING.md`](docs/DP_HARDENING.md).
 Measured before/after evidence (collusion, partition δ, timing, direct database access): [`docs/EVALUATION.md`](docs/EVALUATION.md) — reproduce with `./eval/run_all.sh`.
 
+## Per-patient privacy budgets
+
+Besides each analyst's budget, every **patient** has their own allowance shared by all analysts
+(`sys_patient_budget`). A query charges only the patients it can affect, in the same flow as the
+analyst's charge; a patient whose allowance is spent is left out of later queries; a failed query is
+refunded. Each patient has an append-only, hash-chained ledger (`sys_patient_ledger`). This is what
+makes opening extra analyst accounts worthless for collusion.
+
+**Security rule:** these rows show exactly which patients a query touched, so only the **DBA** can read
+them, a DBA or superuser **cannot run queries**, and an account cannot hold `dba` together with a query
+role. Design, soundness notes and the limits that remain: `docs/PATIENT_ACCOUNTING_DESIGN.md`.
+
 ## Project layout (submission)
 
 ```

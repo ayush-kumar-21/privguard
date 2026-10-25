@@ -372,6 +372,10 @@ def run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAUL
     started = time.perf_counter()
     taken = None
     try:
+        # Separation of duty: the per-patient ledger shows exactly who a query touched, and an
+        # administrator may read it, so an administrator must not be able to generate queries.
+        if principal.is_superuser or principal.has_role("dba"):
+            raise DPQueryError("administrators cannot run queries (separation of duty); use an analyst account")
         taken = _take_run(principal, db_name)
         if taken is None:
             return _quota_exhausted(principal, db_name, sql)

@@ -17,7 +17,7 @@ from safehealth.models import (
 from privacy.service import run_private_query
 from privacy.sql import DPQueryError
 
-from .permissions import IsClinicianOrDbaOrReadOnly, IsDbaOrAuditor, IsDbaOrReadOnly
+from .permissions import IsClinicianOrDbaOrReadOnly, IsDba, IsDbaOrReadOnly
 from . import serializers as s
 
 
@@ -229,9 +229,16 @@ class LedgerVerifyView(APIView):
 
 
 class PatientBudgetViewSet(viewsets.ReadOnlyModelViewSet):
-    """Per-patient privacy budgets (auditor or dba). Spending happens only inside queries."""
+    """Per-patient privacy budgets: DBA ONLY.
+
+    These rows record exactly which patients a query touched, with no noise, so anyone who can both
+    run queries and read them could learn who matches any predicate. The rule that keeps that
+    impossible: whoever may read this cannot run queries (see `run_private_query`), and the two
+    cannot be combined on one account (see `user_admin`). The summary leaks the same way (the change
+    in `charges` after a query is the number of matching patients), so it is DBA-only too.
+    """
     serializer_class = s.PatientBudgetSerializer
-    permission_classes = [IsDbaOrAuditor]
+    permission_classes = [IsDba]
     queryset = PatientBudgetView.objects.all().order_by("-rho_spent", "patient_id")
     filterset_fields = ["status"]
     search_fields = ["patient_id"]

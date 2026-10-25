@@ -227,19 +227,42 @@ def _client(name, *roles):
     return client
 
 
-@pytest.mark.parametrize("role, allowed", [("auditor", True), ("compliance_officer", True), ("dba", True),
+@pytest.mark.parametrize("role, allowed", [("dba", True), ("auditor", False), ("compliance_officer", False),
                                            ("dp_analyst", False), ("clinician", False), ("researcher", False)])
-def test_only_oversight_roles_can_read_patient_budgets(visits, role, allowed):
+def test_only_the_dba_can_read_patient_budgets(visits, role, allowed):
+    """The rows show exactly which patients a query touched, so nobody who can run queries may read them."""
     client = _client(f"u_{role}", role)
     for url in ("/api/patient-budgets/", "/api/patient-budgets/summary/", f"/api/patient-budgets/{patients()[0]}/verify/"):
         assert (client.get(url).status_code == 200) is allowed, url
     assert APIClient().get("/api/patient-budgets/").status_code == 401
 
 
+def test_a_query_cannot_be_used_to_read_who_matched(ready):
+    """The attack: run a query, then read which patients were charged. Both halves are now closed."""
+    ready.principal.save()
+    auditor = _client("snoop", "auditor")  # an auditor holds a budget account and can run queries
+    acct = another_analyst(ready.db, "snoop2")
+    run(acct, URGENT)  # the query touched specific patients
+    for url in ("/api/patient-budgets/", "/api/patient-budgets/summary/", "/api/patient-budgets/1/verify/"):
+        assert auditor.get(url).status_code == 403, url
+
+
+@pytest.mark.parametrize("make", ["role", "superuser"])
+def test_administrators_cannot_run_queries(ready, make):
+    admin = Principal.objects.create_user(username=f"boss_{make}", password=PASSWORD,
+                                          is_superuser=(make == "superuser"))
+    if make == "role":
+        PrincipalRole.objects.create(principal=admin, role=Role.objects.get_or_create(role_name="dba")[0])
+    BudgetAccount.objects.create(principal=admin, db=ready.db, rho_total=10.0, delta_target=1e-6)
+    with pytest.raises(service.DPQueryError, match="separation of duty"):
+        run_private_query(admin, ready.db.db_name, URGENT, rho_req=0.05)
+    assert PatientLedger.objects.count() == 0 and BudgetAccount.objects.get(principal=admin).queries_used == 0
+
+
 def test_the_list_summary_and_verify_endpoints(ready):
     run(ready, URGENT)
     PatientBudget.objects.filter(pk=patients()[1]).update(rho_total=0.05, status="exhausted")
-    client = _client("audit_one", "auditor")
+    client = _client("dba_one", "dba")
     listing = client.get("/api/patient-budgets/").data
     assert listing["count"] == 6 and listing["results"][0]["rho_spent"] == pytest.approx(0.05)
     assert set(listing["results"][0]) == {"patient_id", "rho_total", "rho_spent", "rho_remaining",

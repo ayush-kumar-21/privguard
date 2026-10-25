@@ -146,7 +146,7 @@ export default function App() {
               <Route
                 path="patients"
                 element={
-                  <RouteGate roles={['auditor']}>
+                  <RouteGate roles={['dba']}>
                     <PatientBudgetsPage />
                   </RouteGate>
                 }

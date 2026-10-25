@@ -270,3 +270,19 @@ def test_a_rejected_edit_changes_nothing(api):
     assert resp.status_code == 400
     user = Principal.objects.get(pk=uid2)
     assert user.is_active and sorted(r.role_name for r in user.roles.all()) == ["clinician"]
+
+
+# --- separation of duty: who can read per-patient charges must not be able to run queries ---------
+@pytest.mark.parametrize("roles", [["dba", "dp_analyst"], ["dba", "researcher"], ["dba", "auditor"],
+                                   ["dba", "compliance_officer"]])
+def test_an_administrator_cannot_also_hold_a_query_role(api, roles):
+    resp = new_user(api, username="mixed", roles=roles)
+    assert resp.status_code == 400 and "separation of duty" in resp.data["error"]
+    assert not Principal.objects.filter(username="mixed").exists()
+
+
+def test_giving_an_analyst_the_admin_role_on_top_is_refused_too(api):
+    uid = new_user(api, username="analyst_x", roles=["dp_analyst"]).data["id"]
+    resp = api.patch(f"/api/users/{uid}/", {"roles": ["dp_analyst", "dba"]}, format="json")
+    assert resp.status_code == 400 and "separation of duty" in resp.data["error"]
+    assert api.patch(f"/api/users/{uid}/", {"roles": ["dba"]}, format="json").status_code == 200  # a swap is fine

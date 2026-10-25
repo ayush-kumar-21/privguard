@@ -61,8 +61,14 @@ Our zCDP charge `rho` implies `(alpha, alpha*rho)` Renyi DP, which is the form t
 the report claims this, read their theorem and confirm its conditions (adaptive queries, the exclusion
 rule) match this design; the tests in section 7 are a second line of defence, not a proof.
 
-**Open question with a safe default.** Releasing "some patients were excluded" would itself depend on
-data. Default: analysts get no exclusion information; auditors and the DBA see per-patient budgets.
+**Security rule (found in review, now enforced).** Per-patient charges show *exactly which patients a query
+matched*, with no noise. Anyone who can both run a query and read them could learn who matches any
+predicate, and even totals leak (the change in the number of charges is the number of matching
+patients). So: only the **DBA** can read per-patient budgets, summaries and chains; a DBA or superuser
+**cannot run queries**; an account **cannot hold `dba` together with a query role**; and the monitor hides
+the patient-ledger row count. Analysts get no exclusion information. Residual risks, not closed: a
+response-time difference when very many patients are charged (the 150 ms floor hides it at demo size),
+and a malicious DBA, which is outside the project's declared scope.
 
 **Why this answers collusion.** A patient's total spend is capped no matter how many analyst accounts
 asked. Opening a second account no longer buys a second budget.

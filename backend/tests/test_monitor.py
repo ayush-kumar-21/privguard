@@ -185,3 +185,17 @@ def test_database_feed_lists_databases_tables_and_budgets(staff, account):
     assert tables["sys_principal"]["system"] is True and tables["sys_principal"]["rows"] >= 1
     assert tables["patients"]["system"] is False
     assert [a["user"] for a in data["accounts"]] == ["test_analyst"]
+
+
+def test_the_monitor_never_shows_which_patients_a_query_touched(staff, account, visits, settings):
+    """Row counts of the patient ledger depend on how many patients matched; they must stay hidden."""
+    from privacy.service import run_private_query
+    from catalog.models import SysTable
+    settings.PRIVGUARD_MIN_RESPONSE_MS = 0
+    SysTable.objects.create(db=account.db, table_name="visits")
+    run_private_query(account.principal, account.db.db_name, "SELECT COUNT(*) FROM visits WHERE admission_type = 'URGENT'", rho_req=0.05)
+    data = staff_client(staff).get("/monitor/feed/database/").json()
+    assert "patients" not in data
+    tables = {t["name"]: t for t in data["tables"]}
+    assert tables["sys_patient_ledger"]["rows"] is None
+    assert tables["sys_patient_budget"]["rows"] == 6  # one per patient: no query changes it

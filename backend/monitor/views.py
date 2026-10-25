@@ -17,9 +17,13 @@ from django.shortcuts import render
 from django.utils.http import url_has_allowed_host_and_scheme
 
 from audit.models import SysQuery
-from budget.models import BudgetAccount, BudgetLedger, PatientBudgetView
+from budget.models import BudgetAccount, BudgetLedger
 
 from .middleware import LOG, STARTED
+
+# Tables whose size depends on which patients a query matched. A monitor viewer who also runs
+# queries could read the exact number of matching patients off the row count, so it is never shown.
+HIDDEN_COUNTS = frozenset({"sys_patient_ledger"})
 
 PAGES = {"backend": "Backend", "database": "Database", "login": "Login flow"}
 SESSION_FLAG = "monitor_pass"
@@ -104,6 +108,9 @@ def database_feed(request):
         databases = [{"name": n, "bytes": b, "connections": c} for n, b, c in cur.fetchall()]
         tables = []
         for table in sorted(connection.introspection.table_names()):
+            if table in HIDDEN_COUNTS:
+                tables.append({"name": table, "rows": None, "system": True})
+                continue
             cur.execute(f"SELECT count(*) FROM {_quote(table)}")  # names come from the catalog
             tables.append({"name": table, "rows": cur.fetchone()[0], "system": table.startswith("sys_")})
     return JsonResponse({
@@ -120,11 +127,6 @@ def database_feed(request):
             {"id": e.entry_id, "user": e.account.principal.username, "op": e.op,
              "rho_delta": e.rho_delta, "rho_after": e.rho_after, "at": e.logged_at.isoformat()}
             for e in BudgetLedger.objects.select_related("account__principal").order_by("-entry_id")[:8]
-        ],
-        "patients": [
-            {"id": b.patient_id, "rho_total": b.rho_total, "rho_spent": b.rho_spent,
-             "status": b.status, "charges": b.charges}
-            for b in PatientBudgetView.objects.order_by("-rho_spent", "patient_id")[:8]
         ],
         "queries": [
             {"id": q.query_id, "user": q.principal.username, "status": q.status,

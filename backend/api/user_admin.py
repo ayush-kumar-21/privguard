@@ -64,7 +64,16 @@ def _roles(names):
     unknown = sorted(set(names) - set(found))
     if unknown:
         raise Invalid(f"unknown role(s): {', '.join(unknown)}")
+    _separation_of_duty(found.values())
     return list(found.values())
+
+
+def _separation_of_duty(roles):
+    """`dba` may read per-patient budgets, so it must never be combined with a role that runs queries."""
+    names = {r.role_name for r in roles}
+    if "dba" in names and effective_role_names(names) & QUERY_ROLES:
+        raise Invalid("an administrator cannot also hold a query role (separation of duty): "
+                      "the per-patient ledger shows which patients a query touched")
 
 
 def _password(raw, user):

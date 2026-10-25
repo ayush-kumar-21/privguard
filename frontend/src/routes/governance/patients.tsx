@@ -89,7 +89,7 @@ export default function PatientBudgetsPage() {
     <div className="grid gap-6">
       <PageHeader
         title="Patient budgets"
-        description="Every patient has their own privacy allowance, shared by all analysts. A query charges only the patients it can affect, and a patient whose allowance is spent is left out of later queries. Opening another analyst account never buys more."
+        description="Every patient has their own privacy allowance, shared by all analysts. A query charges only the patients it can affect, and a patient whose allowance is spent is left out of later queries. Opening another analyst account never buys more. Administrators only: this shows exactly which patients each query touched, so administrators cannot run queries."
       />
 
       <StatRow>
