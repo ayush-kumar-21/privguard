@@ -40,6 +40,10 @@ JOB_ROLES = {
 }
 
 
+# The base roles that run DP queries. A principal may query only if its effective roles include one.
+QUERY_ROLES = frozenset({"dp_analyst", "auditor"})
+
+
 def carried_role(name: str) -> str | None:
     """The base role a job role carries, or None for a base role / unknown name."""
     entry = JOB_ROLES.get(name)

@@ -26,6 +26,7 @@ from django.db import connection, transaction, IntegrityError
 from django.db.models import Count, F, Q, Sum, Value, Window
 from django.db.models.functions import Coalesce, DenseRank, Greatest, Least, RowNumber
 
+from accounts.roles import QUERY_ROLES
 from audit.models import SysNoiseCache, SysQuery, SysQueryFingerprint
 from budget.models import BudgetAccount
 from catalog.models import (
@@ -390,6 +391,8 @@ def run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAUL
         # administrator may read it, so an administrator must not be able to generate queries.
         if principal.is_superuser or principal.has_role("dba"):
             raise DPQueryError("administrators cannot run queries (separation of duty); use an analyst account")
+        if not (principal.effective_roles() & QUERY_ROLES):
+            raise DPQueryError("this account has no query role (dp_analyst, auditor, or a job role that carries one)")
         taken = _take_run(principal, db_name)
         if taken is None:
             return _quota_exhausted(principal, db_name, sql)

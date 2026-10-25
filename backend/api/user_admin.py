@@ -20,7 +20,7 @@ from rest_framework import status, viewsets
 from rest_framework.response import Response
 
 from accounts.models import PrincipalRole, Role
-from accounts.roles import effective_role_names
+from accounts.roles import QUERY_ROLES as _QUERY, effective_role_names
 from budget.models import BudgetAccount
 from catalog.models import SysDatabase
 
@@ -33,7 +33,7 @@ DB_NAME = "safehealth"
 USERNAME_RE = re.compile(r"[A-Za-z0-9_.-]{3,64}")  # used with fullmatch: `$` would accept a trailing newline
 MAX_RHO = 1000.0
 # Roles that run DP queries need a budget account even if the admin gave no figure.
-QUERY_ROLES = {"dp_analyst", "auditor"}
+QUERY_ROLES = set(_QUERY)
 
 
 class Invalid(Exception):

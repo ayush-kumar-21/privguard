@@ -44,6 +44,7 @@ def patients():
 
 def another_analyst(db_, name):
     user = Principal.objects.create_user(username=name, password=PASSWORD)
+    PrincipalRole.objects.create(principal=user, role=Role.objects.get_or_create(role_name="dp_analyst")[0])
     acct = BudgetAccount.objects.create(principal=user, db=db_, rho_total=10.0, delta_target=1e-6)
     return acct
 

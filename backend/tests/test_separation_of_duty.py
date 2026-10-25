@@ -100,5 +100,55 @@ def test_the_query_wrapper_pads_with_the_configured_floor(db, settings, monkeypa
     seen = []
     monkeypatch.setattr(service, "padded_duration", lambda elapsed, floor: seen.append(floor) or 0.0)
     monkeypatch.setattr(service, "_run_private_query", lambda *a, **k: {"status": "executed"})
-    service.run_private_query(principal("pad_user"), "nowhere", "SELECT COUNT(*) FROM visits")
+    user = principal("pad_user")
+    give(user, "dp_analyst")
+    service.run_private_query(user, "nowhere", "SELECT COUNT(*) FROM visits")
     assert seen == [0.15]
+
+
+# --- a query needs a query role, not just a budget account -------------------------------------------
+@pytest.mark.parametrize("role, allowed", [("dp_analyst", True), ("auditor", True), ("researcher", True),
+                                           ("compliance_officer", True), ("clinician", False), ("nurse", False)])
+def test_only_query_roles_may_run_queries(account, visits, settings, role, allowed):
+    from budget.models import BudgetAccount
+    from catalog.models import SysTable
+    settings.PRIVGUARD_MIN_RESPONSE_MS = 0
+    SysTable.objects.create(db=account.db, table_name="visits")
+    user = principal(f"q_{role}")
+    give(user, role)
+    BudgetAccount.objects.create(principal=user, db=account.db, rho_total=5.0, delta_target=1e-6)
+    call = lambda: service.run_private_query(user, account.db.db_name, "SELECT COUNT(*) FROM visits", rho_req=0.05)
+    if allowed:
+        assert call()["status"] == "executed"
+    else:
+        with pytest.raises(service.DPQueryError, match="no query role"):
+            call()
+
+
+def test_an_account_with_no_roles_at_all_cannot_query(account, visits):
+    from budget.models import BudgetAccount
+    user = principal("roleless")
+    BudgetAccount.objects.create(principal=user, db=account.db, rho_total=5.0, delta_target=1e-6)
+    with pytest.raises(service.DPQueryError, match="no query role"):
+        service.run_private_query(user, account.db.db_name, "SELECT COUNT(*) FROM visits", rho_req=0.05)
+
+
+# --- the audit command -----------------------------------------------------------------------------
+def test_the_audit_reports_a_conflict_that_predates_the_trigger(db):
+    from io import StringIO
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+    out = StringIO()
+    call_command("audit_separation_of_duty", stdout=out)
+    assert "holds" in out.getvalue()
+    user = principal("legacy_mix")
+    give(user, "dp_analyst")
+    with connection.cursor() as cur:  # how old or restored data could contain a conflict
+        cur.execute("SET CONSTRAINTS ALL IMMEDIATE")  # Postgres refuses ALTER while FK checks wait
+        cur.execute("ALTER TABLE sys_principal_role DISABLE TRIGGER trg_separation_of_duty")
+    give(user, "dba")
+    with pytest.raises(CommandError, match="1 account"):
+        call_command("audit_separation_of_duty", stderr=StringIO())
+    with connection.cursor() as cur:
+        cur.execute("SET CONSTRAINTS ALL IMMEDIATE")
+        cur.execute("ALTER TABLE sys_principal_role ENABLE TRIGGER trg_separation_of_duty")

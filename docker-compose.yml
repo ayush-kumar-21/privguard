@@ -36,6 +36,7 @@ services:
     # on stderr so `docker compose logs api` shows them.
     entrypoint: |
       sh -c "python manage.py migrate --noinput &&
+             { python manage.py audit_separation_of_duty || echo 'WARNING: separation-of-duty conflicts (see above)'; } &&
              { python manage.py seed_demo || echo 'seed_demo failed (continuing)'; } &&
              { python manage.py seed_activity || echo 'seed_activity failed (continuing)'; } &&
              { python manage.py refresh_catalog_stats || echo 'refresh_catalog_stats failed (continuing)'; } &&

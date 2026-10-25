@@ -8,10 +8,13 @@ from catalog.models import SysDatabase
 
 @pytest.fixture
 def analyst(db):
-    """A test analyst user."""
-    return Principal.objects.create_user(
+    """A test analyst user, holding the dp_analyst role like a real analyst."""
+    from accounts.models import PrincipalRole, Role
+    user = Principal.objects.create_user(
         username="test_analyst", password="test1234", kind="human"
     )
+    PrincipalRole.objects.create(principal=user, role=Role.objects.get_or_create(role_name="dp_analyst")[0])
+    return user
 
 
 @pytest.fixture

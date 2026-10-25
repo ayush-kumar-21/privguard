@@ -81,6 +81,14 @@ even from Django admin or raw SQL; a test fails if the trigger's role list drift
   per-patient chains make edits to history detectable, but a database owner can disable the triggers
   (the tamper test does exactly that) and recompute the chain; defending against that needs an external
   anchor for the ledger heads, which is not built.
+- *One person, two accounts.* Separation of duty by role binds to an *account*, not to a human. An
+  administrator could create a second, analyst account, choose its password, and query as it while
+  reading the patient ledger as the administrator. The code cannot tell they are the same person. What
+  is done: a query now needs a real query role (not just a budget account); the combination cannot be
+  held on one account (API, application code and a Postgres trigger); `audit_separation_of_duty` runs
+  at startup and can gate CI. What is **not** done, because it is an organisational control and a new
+  workflow: a two-person rule for creating query accounts, and invitations the creating administrator
+  cannot complete. Until then, account creation is visible only in the `privguard.admin` log.
 - *Crash between charge and settle.* The patient stays charged, which errs towards more privacy.
 
 **Why this answers collusion.** A patient's total spend is capped no matter how many analyst accounts
