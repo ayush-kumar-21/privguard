@@ -1,4 +1,5 @@
 from django.db import connection
+from django.db.models import Avg, Count, Sum
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -7,7 +8,7 @@ from rest_framework.views import APIView
 
 from accounts.models import ColumnGrant, Role
 from audit.models import SysQuery
-from budget.models import BudgetAccount
+from budget.models import BudgetAccount, PatientBudgetView
 from catalog.models import SysColumnPrivacy, SysDatabase, SysTablePrivacy
 from safehealth.models import (
     Department, Diagnosis, Hospital, LabResult, Patient, Region, Staff, Visit,
@@ -16,7 +17,7 @@ from safehealth.models import (
 from privacy.service import run_private_query
 from privacy.sql import DPQueryError
 
-from .permissions import IsClinicianOrDbaOrReadOnly, IsDbaOrReadOnly
+from .permissions import IsClinicianOrDbaOrReadOnly, IsDbaOrAuditor, IsDbaOrReadOnly
 from . import serializers as s
 
 
@@ -225,3 +226,41 @@ class LedgerVerifyView(APIView):
             cur.execute("SELECT ok, entries, first_bad_entry FROM fn_verify_ledger(%s)", [account.account_id])
             ok, entries, first_bad = cur.fetchone()
         return Response({"ok": ok, "entries": entries, "first_bad_entry": first_bad})
+
+
+class PatientBudgetViewSet(viewsets.ReadOnlyModelViewSet):
+    """Per-patient privacy budgets (auditor or dba). Spending happens only inside queries."""
+    serializer_class = s.PatientBudgetSerializer
+    permission_classes = [IsDbaOrAuditor]
+    queryset = PatientBudgetView.objects.all().order_by("-rho_spent", "patient_id")
+    filterset_fields = ["status"]
+    search_fields = ["patient_id"]
+    ordering_fields = ["patient_id", "rho_spent", "rho_remaining", "charges"]
+
+    @action(detail=False, methods=["get"])
+    def summary(self, request):
+        agg = PatientBudgetView.objects.aggregate(
+            patients=Count("patient_id"), spent=Sum("rho_spent"), total=Sum("rho_total"),
+            charges=Sum("charges"), mean_remaining=Avg("rho_remaining"))
+        by_status = {r["status"]: r["n"] for r in
+                     PatientBudgetView.objects.values("status").annotate(n=Count("patient_id"))}
+        return Response({
+            "patients": agg["patients"] or 0,
+            "active": by_status.get("active", 0),
+            "exhausted": by_status.get("exhausted", 0),
+            "erased": by_status.get("erased", 0),
+            "charges": agg["charges"] or 0,
+            "rho_spent": agg["spent"] or 0.0,
+            "rho_total": agg["total"] or 0.0,
+            "mean_remaining": agg["mean_remaining"] or 0.0,
+        })
+
+    @action(detail=True, methods=["get"])
+    def verify(self, request, pk=None):
+        """Replay this patient's hash chain."""
+        if not PatientBudgetView.objects.filter(pk=pk).exists():
+            return Response({"error": "no such patient"}, status=status.HTTP_404_NOT_FOUND)
+        with connection.cursor() as cur:
+            cur.execute("SELECT ok, entries, first_bad_entry FROM fn_verify_patient_chain(%s)", [int(pk)])
+            ok, entries, first_bad = cur.fetchone()
+        return Response({"patient_id": int(pk), "ok": ok, "entries": entries, "first_bad_entry": first_bad})

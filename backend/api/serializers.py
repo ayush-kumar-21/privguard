@@ -149,3 +149,14 @@ class QueryAuditSerializer(serializers.ModelSerializer):
         if not (user and (user.is_superuser or user.has_role("dba") or user.has_role("auditor"))):
             data.pop("latency_ms", None)
         return data
+
+
+class PatientBudgetSerializer(serializers.Serializer):
+    """One patient's budget (from the v_patient_budget view). Patient ids only: no identifiers."""
+    patient_id = serializers.IntegerField()
+    rho_total = serializers.FloatField()
+    rho_spent = serializers.FloatField()
+    rho_remaining = serializers.FloatField()
+    status = serializers.CharField()
+    charges = serializers.IntegerField()
+    last_charged_at = serializers.DateTimeField(allow_null=True)

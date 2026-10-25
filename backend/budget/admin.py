@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import BudgetAccount, BudgetLedger
+from .models import BudgetAccount, BudgetLedger, PatientBudget, PatientLedger
 
 
 @admin.register(BudgetAccount)
@@ -23,4 +23,27 @@ class BudgetLedgerAdmin(admin.ModelAdmin):
         return False
 
     def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PatientBudget)
+class PatientBudgetAdmin(admin.ModelAdmin):
+    list_display = ("patient", "rho_total", "rho_spent", "status")
+    list_filter = ("status",)
+    search_fields = ("patient__patient_id",)
+    readonly_fields = ("rho_spent", "status")  # spending moves only through fn_charge/refund_patients
+
+
+@admin.register(PatientLedger)
+class PatientLedgerAdmin(admin.ModelAdmin):
+    list_display = ("entry_id", "patient", "query", "op", "rho_delta", "rho_after", "logged_at")
+    list_filter = ("op",)
+
+    def has_change_permission(self, request, obj=None):
+        return False  # append-only
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def has_add_permission(self, request):
         return False

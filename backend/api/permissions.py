@@ -36,3 +36,12 @@ class IsDba(BasePermission):
         return bool(
             user and user.is_authenticated and (user.is_superuser or user.has_role("dba"))
         )
+
+
+class IsDbaOrAuditor(BasePermission):
+    """Oversight roles only (the dba, an auditor, or a job role that carries one)."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and (
+            user.is_superuser or user.has_role("dba") or user.has_role("auditor")))

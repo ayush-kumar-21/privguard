@@ -29,6 +29,9 @@ erDiagram
 
     SYS_BUDGET_ACCOUNT ||--o{ SYS_BUDGET_LEDGER : appends
     SYS_QUERY ||--o{ SYS_BUDGET_LEDGER : justifies
+    PATIENTS ||--|| SYS_PATIENT_BUDGET : has_allowance
+    PATIENTS ||--o{ SYS_PATIENT_LEDGER : appends
+    SYS_QUERY ||--o{ SYS_PATIENT_LEDGER : charges
     SYS_QUERY }o--o| SYS_QUERY_FINGERPRINT : canonicalises_to
 
     SYS_QUERY_FINGERPRINT ||--o{ SYS_NOISE_CACHE : memoizes
@@ -138,6 +141,25 @@ erDiagram
         double delta_target
         varchar status
     }
+    SYS_PATIENT_BUDGET {
+        int patient_id PK,FK
+        float rho_total
+        float rho_spent
+        string status
+    }
+
+    SYS_PATIENT_LEDGER {
+        bigint entry_id PK
+        int patient_id FK
+        bigint query_id FK
+        string op
+        float rho_delta
+        float rho_after
+        timestamp logged_at
+        bytea prev_hash
+        bytea entry_hash
+    }
+
     SYS_BUDGET_LEDGER {
         bigint entry_id PK
         int account_id FK

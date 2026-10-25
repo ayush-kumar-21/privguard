@@ -1,6 +1,6 @@
 # Patient-centric privacy accounting: design
 
-**Status:** proposed, not built. **Where it lives:** the graded Django + PostgreSQL + React application
+**Status:** feature 1 (per-patient budget) is built (migration `budget/0010_patient_budget.py`, tests in `backend/tests/test_patient_budget.py`, auditor page *Patient budgets*). Features 2 to 4 are still proposals; the per-patient hash chain and `fn_verify_patient_chain` they need already exist. **Where it lives:** the graded Django + PostgreSQL + React application
 (`PrivGuard_Rubric_Alignment.md` section 0). The Rust engine stays the research appendix and is not touched.
 
 ## 1. The idea in one paragraph
@@ -27,7 +27,14 @@ auditor produce a **receipt** for any patient that can be checked without trusti
 | "Never cut" core | extends contribution bounding, the ledger with trigger and transaction, and the DP service; memoisation is unchanged |
 | Declared scope | one privacy unit; malicious-DBA is out of scope, so receipts are **tamper-evident, not tamper-proof** |
 
-## 3. Feature 1: per-patient budget
+## 3. Feature 1: per-patient budget (built)
+
+**As built, where it differs from the first sketch.** Charging happens at reserve time and a failed query
+is compensated with REFUND entries (the ledger stays append-only); a crash between charge and settle
+leaves the patient charged, which errs on the side of more privacy. `fn_charge_patients` fails closed:
+a patient with no budget row is left out. The allowance per patient is `sys_database.default_patient_rho`
+(default 10). The database already had a global cap, `rho_global_cap`, against colluding analysts; this
+is the finer version of it, because one popular patient no longer uses up the cap for everyone.
 
 **Schema (new ER entities).**
 - `sys_patient_budget(patient_id PK/FK, db_id FK, rho_total, rho_spent, rho_reserved, status)`.

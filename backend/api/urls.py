@@ -22,6 +22,7 @@ router.register("table-policies", views.TablePrivacyViewSet)
 # Read-only reporting
 router.register("budget-accounts", views.BudgetAccountViewSet, basename="budget-account")
 router.register("queries", views.QueryAuditViewSet, basename="query")
+router.register("patient-budgets", views.PatientBudgetViewSet, basename="patient-budget")
 # User administration (dba only)
 router.register("users", UserAdminViewSet, basename="user-admin")
 

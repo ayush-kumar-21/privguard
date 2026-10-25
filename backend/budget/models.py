@@ -111,3 +111,74 @@ class BudgetLedger(models.Model):
             # burn-down chart time-range scans
             models.Index(fields=["logged_at"], name="idx_ledger_logged_at"),
         ]
+
+
+class PatientBudget(models.Model):
+    """The privacy budget of one PATIENT (the privacy unit), across every analyst.
+
+    The analyst budget (`BudgetAccount`) says how much one person may learn; this says how much the
+    data may be asked about one patient in total, however many accounts ask. Rows are created by a
+    trigger on `patients`; spending goes only through `fn_charge_patients` / `fn_refund_patients`.
+    """
+    STATUS_CHOICES = [("active", "active"), ("exhausted", "exhausted"), ("erased", "erased")]
+
+    patient = models.OneToOneField(
+        "safehealth.Patient", primary_key=True, on_delete=models.PROTECT,
+        db_column="patient_id", related_name="privacy_budget",
+    )
+    rho_total = models.FloatField(help_text="zCDP allowance for this patient")
+    rho_spent = models.FloatField(default=0.0, help_text="charged so far (never refunded by erasure)")
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default="active")
+
+    class Meta:
+        db_table = "sys_patient_budget"
+        constraints = [
+            models.CheckConstraint(condition=models.Q(rho_total__gt=0), name="ck_patient_rho_total_pos"),
+            models.CheckConstraint(condition=models.Q(rho_spent__gte=0), name="ck_patient_rho_spent_nonneg"),
+            models.CheckConstraint(
+                condition=models.Q(rho_spent__lte=models.F("rho_total")), name="ck_patient_never_oversold"),
+        ]
+
+    @property
+    def rho_remaining(self) -> float:
+        return max(0.0, self.rho_total - self.rho_spent)
+
+
+class PatientLedger(models.Model):
+    """Append-only, hash-chained (per patient) record of every charge and refund."""
+    OP_CHOICES = [("CHARGE", "CHARGE"), ("REFUND", "REFUND")]
+
+    entry_id = models.BigAutoField(primary_key=True)
+    patient = models.ForeignKey(
+        "safehealth.Patient", on_delete=models.PROTECT,
+        db_column="patient_id", related_name="privacy_ledger",
+    )
+    query = models.ForeignKey(
+        "audit.SysQuery", on_delete=models.PROTECT,
+        db_column="query_id", null=True, blank=True, related_name="patient_ledger_entries",
+    )
+    op = models.CharField(max_length=10, choices=OP_CHOICES)
+    rho_delta = models.FloatField(help_text="signed: + charge, - refund")
+    rho_after = models.FloatField(help_text="the patient's rho_spent after this entry")
+    logged_at = models.DateTimeField()
+    prev_hash = models.BinaryField(max_length=32)
+    entry_hash = models.BinaryField(max_length=32)
+
+    class Meta:
+        db_table = "sys_patient_ledger"
+        indexes = [models.Index(fields=["patient", "entry_id"], name="idx_patient_ledger")]
+
+
+class PatientBudgetView(models.Model):
+    """Read-only mapping of the view `v_patient_budget`."""
+    patient_id = models.IntegerField(primary_key=True)
+    rho_total = models.FloatField()
+    rho_spent = models.FloatField()
+    rho_remaining = models.FloatField()
+    status = models.CharField(max_length=12)
+    charges = models.BigIntegerField()
+    last_charged_at = models.DateTimeField(null=True)
+
+    class Meta:
+        managed = False
+        db_table = "v_patient_budget"

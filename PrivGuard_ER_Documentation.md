@@ -15,9 +15,11 @@ Rendered diagrams: [`docs/er/er-catalog-privacy.png`](docs/er/er-catalog-privacy
 | 2 | `fig2_safehealth_crowsfoot.png` | Crow's Foot | SafeHealth application dataset (8 entities, all attributes) |
 | 3 | `fig3_safehealth_chen.png` | **Chen** | SafeHealth dataset — entities, attribute ellipses, relationship diamonds |
 | 4 | `fig4_privacy_chen.png` | **Chen** | Privacy budget & query audit subsystem |
-| 5 | `fig5_overview.png` | Crow's Foot (compact) | Consolidated view — all 28 entities, all 39 relationships |
+| 5 | `fig5_overview.png` | Crow's Foot (compact) | Consolidated view — the original 28 entities and 39 relationships (the two patient-budget entities R40–R42 are in `docs/er/er-catalog-privacy.mmd`) |
 
 Each figure is supplied as **PNG** (for pasting into a report) and **SVG** (vector — scales without blurring, use this in Word/LaTeX if possible).
+
+> **Added after the figures were generated:** `SYS_PATIENT_BUDGET`, `SYS_PATIENT_LEDGER` and R40–R42 are in `docs/er/er-catalog-privacy.mmd`. Regenerate the picture with `npx @mermaid-js/mermaid-cli -i docs/er/er-catalog-privacy.mmd -o docs/er/er-catalog-privacy.png` before submitting.
 
 > **Note on tooling.** These were laid out programmatically with Graphviz for consistency and precision. If your submission requires a named tool, see §5 for how to import this design into Lucidchart, draw.io, or StarUML in under five minutes.
 
@@ -56,12 +58,14 @@ Each figure is supplied as **PNG** (for pasting into a report) and **SVG** (vect
 | 13 | `SYS_COLUMN_GRANT` | **Associative** | `grant_id` | Column × role access mode; resolves M:N with payload |
 | 14 | `SYS_KEY_MATERIAL` | Strong | `key_id` | Wrapped data-encryption keys per encrypted column |
 
-### Subsystem D — Privacy Budget Ledger (2 entities)
+### Subsystem D — Privacy Budget Ledger (4 entities)
 
 | # | Entity | Type | Primary Key | Purpose |
 |---|---|---|---|---|
 | 15 | `SYS_BUDGET_ACCOUNT` | Strong | `account_id` | Per-principal, per-database ε/ρ allocation and running spend |
 | 16 | `SYS_BUDGET_LEDGER` | **Weak** (existence-dependent on account) | `entry_id` | Append-only, hash-chained record of every RESERVE / COMMIT / ABORT |
+| 29 | `SYS_PATIENT_BUDGET` | Strong (1:1 extension of `PATIENTS`, the privacy unit) | `patient_id` | Per-patient ρ allowance shared by all analysts; makes extra analyst accounts worthless for collusion |
+| 30 | `SYS_PATIENT_LEDGER` | **Weak** (existence-dependent on the patient) | `entry_id` | Append-only, per-patient hash-chained record of every CHARGE / REFUND |
 
 ### Subsystem E — Query Audit and Rewriter State (4 entities)
 
@@ -125,6 +129,8 @@ Legend: **PK** primary key · **FK** foreign key · **UK** unique key · **PU** 
 | Entity | Attributes |
 |---|---|
 | `SYS_BUDGET_ACCOUNT` | **PK** `account_id` INT · **FK** `principal_id` · **FK** `db_id` · `rho_total` DOUBLE · `rho_spent` DOUBLE · `rho_reserved` DOUBLE · `delta_target` DOUBLE · `window_type` VARCHAR(12) · `window_start` TIMESTAMP · `refill_period_s` BIGINT · `status` VARCHAR(12) |
+| `SYS_PATIENT_BUDGET` | **PK/FK** `patient_id` INT · `rho_total` DOUBLE · `rho_spent` DOUBLE · `status` VARCHAR(12) |
+| `SYS_PATIENT_LEDGER` | **PK** `entry_id` BIGINT · **FK** `patient_id` · **FK** `query_id` · `op` VARCHAR(10) · `rho_delta` DOUBLE · `rho_after` DOUBLE · `logged_at` TIMESTAMP · `prev_hash` BINARY(32) · `entry_hash` BINARY(32) |
 | `SYS_BUDGET_LEDGER` | **PK** `entry_id` BIGINT · **FK** `account_id` · **FK** `query_id` · `op` VARCHAR(10) · `rho_delta` DOUBLE · `rho_after` DOUBLE · `eps_equiv` DOUBLE · `mechanism` VARCHAR(20) · `sensitivity` DOUBLE · `sigma_or_scale` DOUBLE · `logged_at` TIMESTAMP · `prev_hash` BINARY(32) · `entry_hash` BINARY(32) |
 
 ### 2.5 Query Audit and Rewriter State
@@ -153,7 +159,7 @@ Legend: **PK** primary key · **FK** foreign key · **UK** unique key · **PU** 
 
 ## 3. Relationship Set with Cardinalities
 
-**Total relationships: 39.** Participation: *Total* = mandatory (every instance must participate), *Partial* = optional.
+**Total relationships: 42** (R1–R39 as originally designed; R40–R42 added with the per-patient budget). Participation: *Total* = mandatory (every instance must participate), *Partial* = optional.
 
 | # | Parent Entity | Relationship | Child Entity | Cardinality | Parent Part. | Child Part. |
 |---|---|---|---|---|---|---|
@@ -196,6 +202,9 @@ Legend: **PK** primary key · **FK** foreign key · **UK** unique key · **PU** 
 | R37 | `STAFF` | attends | `VISITS` | 1 : N | Partial | Total |
 | R38 | `VISITS` | yields | `DIAGNOSES` | 1 : N | Total | Total |
 | R39 | `VISITS` | produces | `LAB_RESULTS` | 1 : N | Partial | Total |
+| R40 | `PATIENTS` | has allowance | `SYS_PATIENT_BUDGET` | 1 : 1 | Partial | Total |
+| R41 | `PATIENTS` | appends *(identifying)* | `SYS_PATIENT_LEDGER` | 1 : N | Partial | Total |
+| R42 | `SYS_QUERY` | charges | `SYS_PATIENT_LEDGER` | 1 : N | Partial | Total |
 
 ### 3.1 Many-to-Many Relationships and Their Resolution
 
@@ -237,7 +246,7 @@ It is the **privacy unit**. The formal DP guarantee is defined over *neighbourin
 **Why is `age` derived rather than stored?**
 Storing both `birth_year` and `age` would create an update anomaly (age changes annually). It is shown as a derived attribute (dashed ellipse in Figure 3) computed as `CURRENT_YEAR − birth_year`.
 
-**Normalisation.** All 28 entities are in **3NF**. There are no partial dependencies (every non-key attribute depends on the whole key, including in the four composite-key associative entities) and no transitive dependencies. The one deliberate denormalisation is `SYS_BUDGET_ACCOUNT.rho_spent`, which is a materialised aggregate over `SYS_BUDGET_LEDGER`. It is justified because the budget check sits on the hot path of every query, and its correctness is enforced by the ledger invariant:
+**Normalisation.** All 30 entities are in **3NF**. There are no partial dependencies (every non-key attribute depends on the whole key, including in the four composite-key associative entities) and no transitive dependencies. The one deliberate denormalisation is `SYS_BUDGET_ACCOUNT.rho_spent`, which is a materialised aggregate over `SYS_BUDGET_LEDGER`. It is justified because the budget check sits on the hot path of every query, and its correctness is enforced by the ledger invariant:
 
 ```
 rho_spent  ==  Σ rho_delta WHERE op = 'COMMIT'  −  Σ rho_delta WHERE op = 'REFILL'

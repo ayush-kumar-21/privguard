@@ -37,7 +37,7 @@ budget recorded in an append-only hash-chained ledger, and role-based column acc
 | Brief section | Where it lives |
 |---|---|
 | ER diagram, schema, data dictionary | [`docs/er/`](docs/er) (PNG + Mermaid), `PrivGuard_ER_Documentation.md`, `PrivGuard_Data_Dictionary.md` |
-| Tables / constraints / 3NF / indexes | 28 tables in Django models + migrations (`backend/*/migrations`) |
+| Tables / constraints / 3NF / indexes | 30 tables in Django models + migrations (`backend/*/migrations`) |
 | Views, stored procedures, triggers | `backend/budget/migrations/0002…0005` (`v_*`, `sp_*`, `trg_*`) |
 | Transactions | `backend/privacy/service.py` (`transaction.atomic` + reserve/settle procedures) |
 | CRUD, search, filter, pagination | DRF viewsets in `backend/api/views.py`; React data screens in `frontend/src/routes` |
@@ -75,7 +75,7 @@ privguard/
 Research extension (not graded): `engine/` (Rust DB engine), `oracle/` (Python DP reference),
 `SPEC.md`, `IMPLEMENTATION_PLAN.md`, `PrivGuard_Project_Plan.md`.
 
-The 28 Django models correspond 1:1 to the ER model. `accounts.Principal` is
+The 30 Django models correspond 1:1 to the ER model. `accounts.Principal` is
 `AUTH_USER_MODEL` — the single users table; roles are resolved through `sys_principal_role`,
 never through per-role tables. (`staff` is hospital HR data — name, department, hire date —
 not a login table.)

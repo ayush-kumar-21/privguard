@@ -96,6 +96,27 @@ def _build_q(filters) -> Q:
     return q
 
 
+def _contributors(spec) -> list:
+    """Patients with at least one row that survives the query's filters (the ones it can affect)."""
+    return list(Visit.objects.filter(_build_q(spec.filters))
+                .values_list(PRIVACY_UNIT, flat=True).distinct())
+
+
+def _charge_patients(query_id: int, rho: float, patient_ids: list) -> list:
+    """Charge `rho` to each contributing patient who can afford it; returns the ids left out."""
+    if not patient_ids:
+        return []
+    with connection.cursor() as cur:
+        cur.execute("SELECT fn_charge_patients(%s, %s, %s::integer[])", [query_id, rho, patient_ids])
+        return list(cur.fetchone()[0] or [])
+
+
+def _refund_patients(query_id: int) -> None:
+    """Give back a query's patient charges (it produced no answer). Idempotent."""
+    with connection.cursor() as cur:
+        cur.execute("SELECT fn_refund_patients(%s)", [query_id])
+
+
 def _call_status(proc_sql: str, params: list) -> str:
     with connection.cursor() as cur:
         cur.execute(proc_sql, params)
@@ -109,6 +130,8 @@ class Policy:
         self.mechanism = mechanism
         self.lo = lo
         self.hi = hi
+        # Patients left out of this query because their own budget cannot cover it.
+        self.excluded: frozenset = frozenset()
 
     @property
     def clamp_magnitude(self) -> float:
@@ -168,6 +191,8 @@ def _bounded_rows(spec, policy: Policy):
     bounding — Python receives only the survivors, not every row.
     """
     qs = Visit.objects.filter(_build_q(spec.filters))
+    if policy.excluded:
+        qs = qs.exclude(**{f"{PRIVACY_UNIT}__in": policy.excluded})  # budget-exhausted patients
     partition = [F(PRIVACY_UNIT)]
     if spec.group_by:
         qs = qs.annotate(grp_rank=Window(
@@ -436,6 +461,9 @@ def _run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAU
         return resp
 
     try:
+        # Per-patient budget: charge the patients this query can affect; any whose own allowance
+        # is spent are left out of it. Analysts are told nothing about who was left out.
+        policy.excluded = frozenset(_charge_patients(q.query_id, rho_req, _contributors(spec)))
         if spec.group_by:
             results, suppressed, _, _ = _execute_grouped(spec, policy, rho_req, seed)
         else:
@@ -444,6 +472,7 @@ def _run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAU
             suppressed = 0
     except DPQueryError:
         # Policy error: abort and re-raise for the API to map to 400
+        _refund_patients(q.query_id)
         _call_status("CALL sp_settle_budget(%s,%s,%s,%s,%s,%s,%s)",
                      [account.account_id, q.query_id, rho_req, False, policy.mechanism, eps_equiv, None])
         q.status = "rejected_policy"
@@ -451,6 +480,7 @@ def _run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAU
         raise
     except Exception:
         # Unexpected error: abort and mark as error
+        _refund_patients(q.query_id)
         _call_status("CALL sp_settle_budget(%s,%s,%s,%s,%s,%s,%s)",
                      [account.account_id, q.query_id, rho_req, False, policy.mechanism, eps_equiv, None])
         q.status = "error"

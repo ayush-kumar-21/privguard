@@ -17,7 +17,7 @@ from django.shortcuts import render
 from django.utils.http import url_has_allowed_host_and_scheme
 
 from audit.models import SysQuery
-from budget.models import BudgetAccount, BudgetLedger
+from budget.models import BudgetAccount, BudgetLedger, PatientBudgetView
 
 from .middleware import LOG, STARTED
 
@@ -120,6 +120,11 @@ def database_feed(request):
             {"id": e.entry_id, "user": e.account.principal.username, "op": e.op,
              "rho_delta": e.rho_delta, "rho_after": e.rho_after, "at": e.logged_at.isoformat()}
             for e in BudgetLedger.objects.select_related("account__principal").order_by("-entry_id")[:8]
+        ],
+        "patients": [
+            {"id": b.patient_id, "rho_total": b.rho_total, "rho_spent": b.rho_spent,
+             "status": b.status, "charges": b.charges}
+            for b in PatientBudgetView.objects.order_by("-rho_spent", "patient_id")[:8]
         ],
         "queries": [
             {"id": q.query_id, "user": q.principal.username, "status": q.status,
