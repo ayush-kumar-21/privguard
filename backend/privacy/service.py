@@ -114,6 +114,16 @@ class Policy:
     def clamp_magnitude(self) -> float:
         return max(abs(self.lo or 0.0), abs(self.hi or 0.0)) or 1.0
 
+    @property
+    def center(self) -> float:
+        """Midpoint of the clamp interval (the shift used by the centred mean)."""
+        return ((self.lo or 0.0) + (self.hi or 0.0)) / 2.0
+
+    @property
+    def half_range(self) -> float:
+        """Half the width of the clamp interval: the per-row sensitivity of a centred sum."""
+        return ((self.hi or 0.0) - (self.lo or 0.0)) / 2.0
+
 
 def _resolve_policy(db: SysDatabase, spec) -> Policy:
     max_rows, max_groups = DEFAULT_MAX_ROWS, DEFAULT_MAX_GROUPS
@@ -215,13 +225,21 @@ def _execute_scalar(spec, policy: Policy, rho: float, rng: KeyedRandom):
         value = _noisy(policy.mechanism, true_sum, rho, delta_sens, delta_sens, rng,
                        grid=mechanisms.SUM_GRID)
         return [{"value": round(value, 4)}], delta_sens, true_count
-    # AVG = noisy_sum / max(noisy_count, 1), budget split 50/50
+    # AVG = centre + noisy_centred_sum / max(noisy_count, 1), budget split 50/50.
+    #
+    # Centred mean: noise the sum of (x - c) with c the midpoint of the clamp interval, instead
+    # of the sum of x. Adding or removing one patient changes the centred sum by at most
+    # C * (hi - lo) / 2 (each of their <= C rows contributes x - c in [-h, h]), against C * M
+    # for the plain sum, so the same rho buys noise that is up to M / h times smaller (2x for
+    # a clamp of [0, hi]). The count is noised separately as before; c + S'/N' is
+    # post-processing, so the guarantee is unchanged.
     rho_s, rho_c = rho / 2.0, rho / 2.0
-    true_sum = agg.get("total", 0.0) or 0.0
-    noisy_sum = _noisy(policy.mechanism, true_sum, rho_s, C * M, C * M, rng,
+    h, centre = policy.half_range, policy.center
+    centred_sum = (agg.get("total", 0.0) or 0.0) - centre * true_count
+    noisy_sum = _noisy(policy.mechanism, centred_sum, rho_s, C * h, C * h, rng,
                        grid=mechanisms.SUM_GRID)
     noisy_cnt = _noisy(policy.mechanism, true_count, rho_c, C, C, rng)
-    return [{"value": round(noisy_sum / max(noisy_cnt, 1.0), 4)}], C * M, true_count
+    return [{"value": round(centre + noisy_sum / max(noisy_cnt, 1.0), 4)}], C * h, true_count
 
 
 def _execute_grouped(spec, policy: Policy, rho: float, seed: bytes, delta_partition: float = DELTA_PARTITION):
@@ -400,7 +418,7 @@ def _run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAU
 
     # representative sensitivity/scale for the ledger row
     C, M = policy.max_rows, policy.clamp_magnitude
-    sens = float(C) if spec.agg == "COUNT" else C * M
+    sens = float(C) if spec.agg == "COUNT" else (C * policy.half_range if spec.agg == "AVG" else C * M)
     scale = (accounting.sigma_from_rho(sens, rho_req) if policy.mechanism == "gaussian"
              else accounting.laplace_scale_from_rho(sens, rho_req))
 
