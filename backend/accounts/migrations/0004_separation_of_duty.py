@@ -6,18 +6,25 @@ only as strong as its weakest entry point, so this trigger makes Postgres refuse
 admin, a script, or hand-written SQL cannot give one principal `dba` together with a role that
 carries `dp_analyst` or `auditor`.
 
-The role names are written into the function; `tests/test_separation_of_duty.py` fails if
-`accounts/roles.py` ever gains a query-carrying role this trigger does not list.
+The role names are a literal list below (see QUERY_ROLES); `tests/test_separation_of_duty.py`
+compares the deployed function with `accounts/roles.py` and fails if they ever differ.
 """
 from django.db import migrations
 
 
-def build_sql():
-    from accounts.roles import JOB_ROLES
+# The roles that can run DP queries, frozen as of this migration: dp_analyst, auditor and the job
+# roles that carry them. A migration must not be generated from application code that can change
+# later, so when accounts/roles.py gains a query-carrying role, add a NEW migration that replaces
+# this function. tests/test_separation_of_duty.py fails until you do.
+QUERY_ROLES = (
+    "auditor", "biostatistician", "business_analyst", "compliance_officer", "data_scientist",
+    "dp_analyst", "epidemiologist", "internal_auditor", "privacy_officer", "researcher",
+    "security_auditor",
+)
 
-    query_roles = sorted({"dp_analyst", "auditor"} | {n for n, (base, _) in JOB_ROLES.items()
-                                                      if base in ("dp_analyst", "auditor")})
-    array = ", ".join(f"'{n}'" for n in query_roles)
+
+def build_sql():
+    array = ", ".join(f"'{n}'" for n in QUERY_ROLES)
     return f"""
 CREATE OR REPLACE FUNCTION privguard_separation_of_duty() RETURNS trigger AS $sod$
 DECLARE

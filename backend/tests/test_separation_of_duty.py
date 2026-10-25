@@ -62,17 +62,58 @@ def test_swapping_roles_works(db):
     assert user.has_role("dba") and not user.has_role("dp_analyst")
 
 
-def test_the_trigger_lists_every_query_carrying_role(db):
-    """If roles.py gains a query role the trigger does not know, this fails: add a migration."""
+def _deployed_query_roles():
     with connection.cursor() as cur:
         cur.execute("SELECT pg_get_functiondef('privguard_separation_of_duty'::regproc)")
         definition = cur.fetchone()[0]
+    return definition, {n for n in ["dp_analyst", "auditor", *JOB_ROLES] if f"'{n}'" in definition}
+
+
+def test_the_trigger_lists_exactly_the_query_carrying_roles(db):
+    """Compares the deployed function (built from frozen, literal migrations) with roles.py.
+
+    If roles.py gains a query-carrying role without a NEW migration, this fails: the migrations are
+    not regenerated from roles.py, so the two can genuinely disagree."""
+    definition, listed = _deployed_query_roles()
     expected = {"dp_analyst", "auditor"} | {n for n, (base, _) in JOB_ROLES.items() if base in ("dp_analyst", "auditor")}
-    listed = {name for name in expected if f"'{name}'" in definition}
-    assert listed == expected
+    assert listed == expected, f"update the trigger in a new migration: missing {expected - listed}, extra {listed - expected}"
     for name, (base, _) in JOB_ROLES.items():
         if base == "clinician":
             assert f"'{name}'" not in definition  # clinical roles do not run DP queries
+
+
+def test_the_migrations_do_not_read_roles_py():
+    """A migration generated from mutable application code would make the test above pass by construction."""
+    import accounts.migrations as pkg, pathlib
+    for name in ("0004_separation_of_duty.py", "0005_separation_of_duty_locking.py"):
+        source = (pathlib.Path(pkg.__file__).parent / name).read_text()
+        assert "import" not in source.replace("from django.db import migrations", ""), name
+        assert "JOB_ROLES" not in source.replace("# ", ""), name
+
+
+def test_a_stale_trigger_would_be_caught(db, monkeypatch):
+    """Prove the drift test can fail: pretend roles.py gained a query-carrying role."""
+    import accounts.roles as roles
+    monkeypatch.setitem(roles.JOB_ROLES, "pharmacist_analyst", ("dp_analyst", "invented for this test"))
+    definition = _deployed_query_roles()[0]
+    expected = {"dp_analyst", "auditor"} | {n for n, (b, _) in roles.JOB_ROLES.items() if b in ("dp_analyst", "auditor")}
+    assert "pharmacist_analyst" in expected and "'pharmacist_analyst'" not in definition
+
+
+def test_the_trigger_takes_a_per_principal_lock(db):
+    assert "pg_advisory_xact_lock" in _deployed_query_roles()[0]
+
+
+def test_renaming_a_role_cannot_create_a_conflict(db):
+    """A rename can make someone an administrator without touching sys_principal_role: delete the
+    dba role, then rename another role the principal already holds into its place."""
+    user = principal("renamer")
+    give(user, "dp_analyst")
+    give(user, "clinician")
+    Role.objects.filter(role_name="dba").delete()
+    with pytest.raises(DatabaseError, match="renaming role"), transaction.atomic():
+        Role.objects.filter(role_name="clinician").update(role_name="dba")
+    assert Role.objects.filter(role_name="clinician").exists() and not Role.objects.filter(role_name="dba").exists()
 
 
 # --- time buckets --------------------------------------------------------------------------------
