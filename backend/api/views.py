@@ -1,12 +1,14 @@
 from django.db import connection
+from django.db.models import Avg, Count, Sum
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import ColumnGrant, Role
 from audit.models import SysQuery
-from budget.models import BudgetAccount
+from budget.models import BudgetAccount, PatientBudgetView
 from catalog.models import SysColumnPrivacy, SysDatabase, SysTablePrivacy
 from safehealth.models import (
     Department, Diagnosis, Hospital, LabResult, Patient, Region, Staff, Visit,
@@ -15,7 +17,7 @@ from safehealth.models import (
 from privacy.service import run_private_query
 from privacy.sql import DPQueryError
 
-from .permissions import IsClinicianOrDbaOrReadOnly, IsDbaOrReadOnly
+from .permissions import IsClinicianOrDbaOrReadOnly, IsDba, IsDbaOrReadOnly
 from . import serializers as s
 
 
@@ -137,6 +139,25 @@ class BudgetAccountViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         return _scoped(BudgetAccount.objects.select_related("principal"), self.request.user).order_by("account_id")
 
+    @action(detail=True, methods=["post"], permission_classes=[IsDbaOrReadOnly])
+    def quota(self, request, pk=None):
+        """POST /api/budget-accounts/<id>/quota/  {"max_queries": 25|null, "reset_used": false}
+
+        DBA only. Takes effect on the account's very next query."""
+        body = request.data
+        if "max_queries" not in body:
+            return Response({"error": "max_queries is required (a whole number, or null)"}, status=400)
+        limit = body["max_queries"]
+        if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit < 0):
+            return Response({"error": "max_queries must be a whole number >= 0, or null"}, status=400)
+        fields = {"max_queries": limit}
+        if body.get("reset_used") is True:
+            fields["queries_used"] = 0
+        updated = self.get_queryset().filter(pk=pk).update(**fields)
+        if not updated:
+            return Response({"error": "no such budget account"}, status=404)
+        return Response(self.get_serializer(self.get_queryset().get(pk=pk)).data)
+
 
 class QueryAuditViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = s.QueryAuditSerializer
@@ -205,3 +226,48 @@ class LedgerVerifyView(APIView):
             cur.execute("SELECT ok, entries, first_bad_entry FROM fn_verify_ledger(%s)", [account.account_id])
             ok, entries, first_bad = cur.fetchone()
         return Response({"ok": ok, "entries": entries, "first_bad_entry": first_bad})
+
+
+class PatientBudgetViewSet(viewsets.ReadOnlyModelViewSet):
+    """Per-patient privacy budgets: DBA ONLY.
+
+    These rows record exactly which patients a query touched, with no noise, so anyone who can both
+    run queries and read them could learn who matches any predicate. The rule that keeps that
+    impossible: whoever may read this cannot run queries (see `run_private_query`), and the two
+    cannot be combined on one account (see `user_admin`). The summary leaks the same way (the change
+    in `charges` after a query is the number of matching patients), so it is DBA-only too.
+    """
+    serializer_class = s.PatientBudgetSerializer
+    permission_classes = [IsDba]
+    queryset = PatientBudgetView.objects.all().order_by("-rho_spent", "patient_id")
+    filterset_fields = ["status"]
+    search_fields = ["patient_id"]
+    ordering_fields = ["patient_id", "rho_spent", "rho_remaining", "charges"]
+
+    @action(detail=False, methods=["get"])
+    def summary(self, request):
+        agg = PatientBudgetView.objects.aggregate(
+            patients=Count("patient_id"), spent=Sum("rho_spent"), total=Sum("rho_total"),
+            charges=Sum("charges"), mean_remaining=Avg("rho_remaining"))
+        by_status = {r["status"]: r["n"] for r in
+                     PatientBudgetView.objects.values("status").annotate(n=Count("patient_id"))}
+        return Response({
+            "patients": agg["patients"] or 0,
+            "active": by_status.get("active", 0),
+            "exhausted": by_status.get("exhausted", 0),
+            "erased": by_status.get("erased", 0),
+            "charges": agg["charges"] or 0,
+            "rho_spent": agg["spent"] or 0.0,
+            "rho_total": agg["total"] or 0.0,
+            "mean_remaining": agg["mean_remaining"] or 0.0,
+        })
+
+    @action(detail=True, methods=["get"])
+    def verify(self, request, pk=None):
+        """Replay this patient's hash chain."""
+        if not PatientBudgetView.objects.filter(pk=pk).exists():
+            return Response({"error": "no such patient"}, status=status.HTTP_404_NOT_FOUND)
+        with connection.cursor() as cur:
+            cur.execute("SELECT ok, entries, first_bad_entry FROM fn_verify_patient_chain(%s)", [int(pk)])
+            ok, entries, first_bad = cur.fetchone()
+        return Response({"patient_id": int(pk), "ok": ok, "entries": entries, "first_bad_entry": first_bad})

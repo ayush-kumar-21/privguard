@@ -26,8 +26,9 @@ FORBIDDEN_TABLES = [
     "sys_noise_cache",                                          # cached answers + seed commitments
     "sys_budget_ledger", "sys_principal", "sys_column_grant",   # ledger, identities, policy
     "sys_query_fingerprint", "sys_noise_cache", "sys_database",
+    "sys_patient_budget", "sys_patient_ledger",                 # which patients each query touched
 ]
-FORBIDDEN_VIEWS = ["v_visit_summary"]  # exact (un-noised) per-department aggregates
+FORBIDDEN_VIEWS = ["v_visit_summary", "v_patient_budget"]  # exact (un-noised) per-department aggregates
 
 
 @pytest.fixture(autouse=True)

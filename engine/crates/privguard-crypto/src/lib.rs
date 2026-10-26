@@ -6,8 +6,9 @@
 //!
 //! Landed in Phase 4.2 (`IMPLEMENTATION_PLAN.md`).
 
-use aes_gcm::aead::{Aead, KeyInit, OsRng, Payload};
-use aes_gcm::{AeadCore, Aes256Gcm, Key, Nonce};
+use aes_gcm::aead::{Aead, Generate, KeyInit, Payload};
+use aes_gcm::aead::{Key, Nonce};
+use aes_gcm::Aes256Gcm;
 use privguard_core::{Error, Result};
 use privguard_storage::ValueCipher;
 use std::fmt;
@@ -78,7 +79,7 @@ impl Keyring {
     /// A cipher for the columns of `table` named in `encrypted` (by position, `None` = plaintext).
     pub fn table_cipher(&self, table: &str, columns: &[Option<String>]) -> TableCipher {
         TableCipher {
-            aead: Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&self.key)),
+            aead: Aes256Gcm::new(&Key::<Aes256Gcm>::from(self.key)),
             table: table.to_string(),
             columns: columns.to_vec(),
         }
@@ -128,7 +129,7 @@ impl ValueCipher for TableCipher {
 
     fn seal(&self, col: usize, plaintext: &[u8]) -> Result<Vec<u8>> {
         let aad = self.aad(col)?;
-        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        let nonce = Nonce::<Aes256Gcm>::generate(); // 96-bit nonce from the OS CSPRNG (getrandom)
         let ct = self
             .aead
             .encrypt(
@@ -151,8 +152,10 @@ impl ValueCipher for TableCipher {
             return Err(Error::engine("encrypted value is too short"));
         }
         let (nonce, ct) = stored.split_at(aes::NONCE_LEN);
+        let nonce = Nonce::<Aes256Gcm>::try_from(nonce)
+            .map_err(|_| Error::engine("encrypted value has a malformed nonce"))?;
         self.aead
-            .decrypt(Nonce::from_slice(nonce), Payload { msg: ct, aad: &aad })
+            .decrypt(&nonce, Payload { msg: ct, aad: &aad })
             // Wrong key, wrong column, or a flipped bit all look the same, by design.
             .map_err(|_| Error::engine("encrypted value failed authentication"))
     }

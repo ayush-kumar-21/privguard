@@ -8,7 +8,7 @@ use privguard_catalog::AccessMode;
 use privguard_core::{ColumnType, Error, Result, Value};
 use sqlparser::ast::{
     BinaryOperator, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, GroupByExpr, Ident,
-    ObjectName, Query, SelectItem, SetExpr, Statement, TableFactor, UnaryOperator,
+    ObjectName, ObjectNamePart, Query, SelectItem, SetExpr, Statement, TableFactor, UnaryOperator,
     Value as SqlValue,
 };
 use sqlparser::dialect::PostgreSqlDialect;
@@ -356,8 +356,19 @@ fn bind_query(query: &Query, catalog: &dyn CatalogLookup) -> Result<BoundQuery> 
     if query.order_by.is_some() {
         return Err(Error::parse("ORDER BY is not supported"));
     }
-    if query.limit.is_some() || query.offset.is_some() || query.fetch.is_some() {
+    if query.limit_clause.is_some() || query.fetch.is_some() {
         return Err(Error::parse("LIMIT/OFFSET is not supported"));
+    }
+    // Clauses that are parsed but that this engine would silently ignore. Refusing them keeps
+    // the rule "what you wrote is what runs" (a pipe operator or FOR UPDATE would otherwise be
+    // dropped without a word).
+    if !query.locks.is_empty()
+        || query.for_clause.is_some()
+        || query.settings.is_some()
+        || query.format_clause.is_some()
+        || !query.pipe_operators.is_empty()
+    {
+        return Err(Error::parse("only a plain SELECT is supported"));
     }
 
     let select = match query.body.as_ref() {
@@ -614,14 +625,14 @@ fn bind_literal(expr: &Expr, expected: ColumnType) -> Result<Value> {
             expr: inner,
         } => {
             if let Expr::Value(v) = inner.as_ref() {
-                (true, v)
+                (true, &v.value)
             } else {
                 return Err(Error::parse(
                     "expected literal on right-hand side of comparison",
                 ));
             }
         }
-        Expr::Value(v) => (false, v),
+        Expr::Value(v) => (false, &v.value),
         _ => {
             return Err(Error::parse(
                 "expected literal on right-hand side of comparison",
@@ -680,7 +691,10 @@ fn object_ident(name: &ObjectName) -> Result<String> {
     if name.0.len() != 1 {
         return Err(Error::parse("qualified identifiers are not supported"));
     }
-    ident_str(&name.0[0])
+    match &name.0[0] {
+        ObjectNamePart::Identifier(id) => ident_str(id),
+        _ => Err(Error::parse("only plain table names are supported")),
+    }
 }
 
 fn expr_column_ident(expr: &Expr) -> Result<String> {
@@ -777,6 +791,13 @@ mod tests {
             "SELECT COUNT(*) FROM visits WHERE NOT dept_id = 1",
             "SELECT COUNT(*) FROM visits GROUP BY dept_id, admission_type",
             "SELECT COUNT(*) FROM visits LIMIT 10",
+            "SELECT COUNT(*) FROM visits LIMIT 10 OFFSET 5",
+            "SELECT COUNT(*) FROM visits OFFSET 3",
+            "SELECT COUNT(*) FROM visits FETCH FIRST 1 ROWS ONLY",
+            "SELECT COUNT(*) FROM visits FOR UPDATE",
+            "SELECT COUNT(*) FROM visits FOR SHARE",
+            "SELECT COUNT(*) FROM public.visits",
+            "SELECT COUNT(*) FROM visits()",
             "DELETE FROM visits",
         ] {
             let err = parse(bad_sql).unwrap_err();

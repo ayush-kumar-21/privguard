@@ -26,3 +26,13 @@ class IsClinicianOrDbaOrReadOnly(BasePermission):
             or request.user.has_role("dba")
             or request.user.has_role("clinician")
         )
+
+
+class IsDba(BasePermission):
+    """Only the `dba` role (or a superuser) — no read access for anyone else."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(
+            user and user.is_authenticated and (user.is_superuser or user.has_role("dba"))
+        )

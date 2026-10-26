@@ -18,7 +18,8 @@ pub mod policy;
 
 pub use fingerprint::{CanonicalQuery, Literal, Predicate, QueryFingerprint};
 pub use mechanisms::{
-    clamp, derive_seed, discrete_laplace, gaussian, laplace, sha256, KeyedRandom,
+    clamp, derive_seed, dgauss, dlap, noisy_count, noisy_gaussian, noisy_laplace, partition_cutoff,
+    partition_release, sha256, KeyedRandom, PartitionCutoff, GRID,
 };
 pub use policy::{ColumnPolicy, Mechanism, PrivacyPolicy, TablePolicy};
 

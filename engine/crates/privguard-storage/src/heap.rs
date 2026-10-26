@@ -31,7 +31,7 @@ impl FileHeaderMeta {
     }
 
     fn decode(bytes: &[u8]) -> Result<Self> {
-        if bytes.len() < 12 || (bytes.len() - 12) % 2 != 0 {
+        if bytes.len() < 12 || !(bytes.len() - 12).is_multiple_of(2) {
             return Err(Error::engine("corrupt heap file header metadata"));
         }
         let row_count = u64::from_le_bytes(bytes[0..8].try_into().unwrap());

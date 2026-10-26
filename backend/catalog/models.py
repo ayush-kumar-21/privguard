@@ -23,6 +23,12 @@ class SysDatabase(models.Model):
     )
     default_rho = models.FloatField(help_text="Default zCDP budget per account")
     default_delta = models.FloatField(help_text="e.g. 1e-6, must be << 1/N")
+    default_patient_rho = models.FloatField(
+        default=10.0,
+        help_text="zCDP allowance of each PATIENT across all analysts (sys_patient_budget). "
+                  "Unlike rho_global_cap it is per privacy unit, so one popular patient "
+                  "cannot use up the allowance of everyone else.",
+    )
     rho_global_cap = models.FloatField(
         null=True, blank=True,
         help_text="Cap on total rho (spent + reserved) across ALL accounts of this "
@@ -37,6 +43,10 @@ class SysDatabase(models.Model):
             models.CheckConstraint(
                 condition=models.Q(rho_global_cap__isnull=True) | models.Q(rho_global_cap__gt=0),
                 name="ck_database_global_cap_pos",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(default_patient_rho__gt=0),
+                name="ck_database_patient_rho_pos",
             ),
         ]
 

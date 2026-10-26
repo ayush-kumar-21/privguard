@@ -8,7 +8,10 @@ export interface Principal {
   kind: 'human' | 'service'
   is_active: boolean
   is_staff: boolean
-  roles: RoleName[]
+  /** Assigned roles plus the base roles they carry: what the UI gates on. */
+  roles: string[]
+  /** What an administrator actually gave this principal. */
+  assigned_roles?: string[]
   date_joined: string
 }
 
@@ -22,6 +25,10 @@ export interface BudgetAccount {
   delta_target: number | null
   window_type: string
   status: string
+  /** Run quota set by the administrator; null = unlimited. */
+  max_queries: number | null
+  queries_used: number
+  queries_remaining: number | null
 }
 
 export type QueryStatus =
@@ -54,12 +61,17 @@ export interface DPQueryResponse {
   mechanism: string
   query_id: number
   suppressed_groups?: number
+  /** Why a `rejected_budget` was refused: 'quota' (runs used up) or 'global_cap'. */
+  reason?: string
   budget: {
     rho_total: number
     rho_spent: number
     rho_reserved: number
     rho_remaining: number
     status: string
+    max_queries: number | null
+    queries_used: number
+    queries_remaining: number | null
   }
 }
 
@@ -128,8 +140,10 @@ export type AccessMode = 'raw' | 'dp' | 'redacted' | 'denied'
 
 export interface Role {
   role_id: number
-  role_name: RoleName
+  role_name: string
   description: string | null
+  /** The base role a job role carries; null for the four base roles. */
+  carries?: string | null
 }
 
 export interface ColumnGrant {

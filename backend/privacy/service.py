@@ -26,6 +26,7 @@ from django.db import connection, transaction, IntegrityError
 from django.db.models import Count, F, Q, Sum, Value, Window
 from django.db.models.functions import Coalesce, DenseRank, Greatest, Least, RowNumber
 
+from accounts.roles import QUERY_ROLES
 from audit.models import SysNoiseCache, SysQuery, SysQueryFingerprint
 from budget.models import BudgetAccount
 from catalog.models import (
@@ -96,6 +97,27 @@ def _build_q(filters) -> Q:
     return q
 
 
+def _contributors(spec) -> list:
+    """Patients with at least one row that survives the query's filters (the ones it can affect)."""
+    return list(Visit.objects.filter(_build_q(spec.filters))
+                .values_list(PRIVACY_UNIT, flat=True).distinct())
+
+
+def _charge_patients(query_id: int, rho: float, patient_ids: list) -> list:
+    """Charge `rho` to each contributing patient who can afford it; returns the ids left out."""
+    if not patient_ids:
+        return []
+    with connection.cursor() as cur:
+        cur.execute("SELECT fn_charge_patients(%s, %s, %s::integer[])", [query_id, rho, patient_ids])
+        return list(cur.fetchone()[0] or [])
+
+
+def _refund_patients(query_id: int) -> None:
+    """Give back a query's patient charges (it produced no answer). Idempotent."""
+    with connection.cursor() as cur:
+        cur.execute("SELECT fn_refund_patients(%s)", [query_id])
+
+
 def _call_status(proc_sql: str, params: list) -> str:
     with connection.cursor() as cur:
         cur.execute(proc_sql, params)
@@ -109,10 +131,22 @@ class Policy:
         self.mechanism = mechanism
         self.lo = lo
         self.hi = hi
+        # Patients left out of this query because their own budget cannot cover it.
+        self.excluded: frozenset = frozenset()
 
     @property
     def clamp_magnitude(self) -> float:
         return max(abs(self.lo or 0.0), abs(self.hi or 0.0)) or 1.0
+
+    @property
+    def center(self) -> float:
+        """Midpoint of the clamp interval (the shift used by the centred mean)."""
+        return ((self.lo or 0.0) + (self.hi or 0.0)) / 2.0
+
+    @property
+    def half_range(self) -> float:
+        """Half the width of the clamp interval: the per-row sensitivity of a centred sum."""
+        return ((self.hi or 0.0) - (self.lo or 0.0)) / 2.0
 
 
 def _resolve_policy(db: SysDatabase, spec) -> Policy:
@@ -158,6 +192,8 @@ def _bounded_rows(spec, policy: Policy):
     bounding — Python receives only the survivors, not every row.
     """
     qs = Visit.objects.filter(_build_q(spec.filters))
+    if policy.excluded:
+        qs = qs.exclude(**{f"{PRIVACY_UNIT}__in": policy.excluded})  # budget-exhausted patients
     partition = [F(PRIVACY_UNIT)]
     if spec.group_by:
         qs = qs.annotate(grp_rank=Window(
@@ -215,13 +251,21 @@ def _execute_scalar(spec, policy: Policy, rho: float, rng: KeyedRandom):
         value = _noisy(policy.mechanism, true_sum, rho, delta_sens, delta_sens, rng,
                        grid=mechanisms.SUM_GRID)
         return [{"value": round(value, 4)}], delta_sens, true_count
-    # AVG = noisy_sum / max(noisy_count, 1), budget split 50/50
+    # AVG = centre + noisy_centred_sum / max(noisy_count, 1), budget split 50/50.
+    #
+    # Centred mean: noise the sum of (x - c) with c the midpoint of the clamp interval, instead
+    # of the sum of x. Adding or removing one patient changes the centred sum by at most
+    # C * (hi - lo) / 2 (each of their <= C rows contributes x - c in [-h, h]), against C * M
+    # for the plain sum, so the same rho buys noise that is up to M / h times smaller (2x for
+    # a clamp of [0, hi]). The count is noised separately as before; c + S'/N' is
+    # post-processing, so the guarantee is unchanged.
     rho_s, rho_c = rho / 2.0, rho / 2.0
-    true_sum = agg.get("total", 0.0) or 0.0
-    noisy_sum = _noisy(policy.mechanism, true_sum, rho_s, C * M, C * M, rng,
+    h, centre = policy.half_range, policy.center
+    centred_sum = (agg.get("total", 0.0) or 0.0) - centre * true_count
+    noisy_sum = _noisy(policy.mechanism, centred_sum, rho_s, C * h, C * h, rng,
                        grid=mechanisms.SUM_GRID)
     noisy_cnt = _noisy(policy.mechanism, true_count, rho_c, C, C, rng)
-    return [{"value": round(noisy_sum / max(noisy_cnt, 1.0), 4)}], C * M, true_count
+    return [{"value": round(centre + noisy_sum / max(noisy_cnt, 1.0), 4)}], C * h, true_count
 
 
 def _execute_grouped(spec, policy: Policy, rho: float, seed: bytes, delta_partition: float = DELTA_PARTITION):
@@ -259,32 +303,7 @@ def _execute_grouped(spec, policy: Policy, rho: float, seed: bytes, delta_partit
 # --------------------------------------------------------------------------
 # Public entry point
 # --------------------------------------------------------------------------
-def run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAULT_RHO) -> dict:
-    """Run a DP query, padding the response time to a fixed floor.
-
-    The exact samplers loop a randomised number of times, so without a floor the
-    wall-clock time is a (weak) side channel (Jin et al., IEEE S&P 2022).
-    """
-    started = time.perf_counter()
-    try:
-        return _run_private_query(principal, db_name, sql, rho_req)
-    finally:
-        floor_ms = float(getattr(settings, "PRIVGUARD_MIN_RESPONSE_MS", 0))
-        remaining = floor_ms / 1000.0 - (time.perf_counter() - started)
-        if remaining > 0:
-            time.sleep(remaining)
-
-
-def _run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAULT_RHO) -> dict:
-    db = SysDatabase.objects.filter(db_name=db_name).first()
-    if not db:
-        raise DPQueryError(f"unknown database: {db_name}")
-    account = BudgetAccount.objects.filter(principal=principal, db=db).first()
-    if not account:
-        raise DPQueryError("no budget account for this principal/database")
-
-    spec = parse(sql)
-    ast_hash = spec.ast_hash()
+def _get_fingerprint(db, spec, ast_hash):
     try:
         fingerprint, _ = SysQueryFingerprint.objects.get_or_create(
             ast_hash=ast_hash,
@@ -298,6 +317,120 @@ def _run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAU
         )
     except IntegrityError:
         fingerprint = SysQueryFingerprint.objects.get(ast_hash=ast_hash)
+    return fingerprint
+
+
+def padded_duration(elapsed: float, floor: float) -> float:
+    """How long a query response should take in total, to hide how much work it did.
+
+    Up to the floor every response takes exactly the floor. A query that runs longer (many patients
+    charged, a big scan) is rounded up to the next doubling of the floor (floor, 2x, 4x, 8x ...),
+    so an observer learns only which bucket it fell in, not the exact duration.
+    """
+    if floor <= 0:
+        return 0.0
+    if elapsed <= floor:
+        return floor
+    return floor * 2 ** math.ceil(math.log2(elapsed / floor))
+
+
+def _take_run(principal, db_name: str):
+    """Use one run of the principal's quota, atomically. Returns the account id once a run was
+    taken, `"no_account"` when there is no quota to charge, or None when the quota is spent.
+
+    One conditional UPDATE does the check and the increment together, so two concurrent queries
+    can never both take the last run, and `max_queries` is read from the row at that moment:
+    an administrator's change applies to the very next query.
+    """
+    account_id = (
+        BudgetAccount.objects.filter(principal=principal, db__db_name=db_name)
+        .values_list("account_id", flat=True).first()
+    )
+    if account_id is None:
+        return "no_account"  # no account: the normal "no budget account" path reports it
+    taken = BudgetAccount.objects.filter(
+        Q(max_queries__isnull=True) | Q(queries_used__lt=F("max_queries")),
+        account_id=account_id,
+    ).update(queries_used=F("queries_used") + 1)
+    return account_id if taken else None
+
+
+def _refund_run(account_id) -> None:
+    BudgetAccount.objects.filter(account_id=account_id, queries_used__gt=0).update(
+        queries_used=F("queries_used") - 1
+    )
+
+
+def _quota_exhausted(principal, db_name: str, sql: str) -> dict:
+    """The answer for a spent quota. Audited like any other refusal, so monitoring sees it."""
+    db = SysDatabase.objects.get(db_name=db_name)
+    account = BudgetAccount.objects.get(principal=principal, db=db)
+    spec = parse(sql)  # a malformed query is a 400 first, whatever the quota says
+    SysQuery.objects.create(
+        principal=principal, db=db, fingerprint=_get_fingerprint(db, spec, spec.ast_hash()),
+        sql_text=sql, status="rejected_budget", rho_charged=0.0, latency_ms=0.0,
+    )
+    resp = _response("rejected_budget", [], 0.0, 0.0, "none", None, account)
+    resp["reason"] = "quota"
+    return resp
+
+
+def run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAULT_RHO) -> dict:
+    """Run a DP query, padding the response time to a fixed floor.
+
+    The exact samplers loop a randomised number of times, so without a floor the
+    wall-clock time is a (weak) side channel (Jin et al., IEEE S&P 2022).
+
+    Each answered query uses one run of the analyst's quota; anything that does not produce an
+    answer (rejection, policy error, crash) gives the run back.
+    """
+    started = time.perf_counter()
+    taken = None
+    try:
+        # Separation of duty: the per-patient ledger shows exactly who a query touched, and an
+        # administrator may read it, so an administrator must not be able to generate queries.
+        if principal.is_superuser or principal.has_role("dba"):
+            raise DPQueryError("administrators cannot run queries (separation of duty); use an analyst account")
+        if not (principal.effective_roles() & QUERY_ROLES):
+            raise DPQueryError("this account has no query role (dp_analyst, auditor, or a job role that carries one)")
+        taken = _take_run(principal, db_name)
+        if taken is None:
+            return _quota_exhausted(principal, db_name, sql)
+        result = _run_private_query(principal, db_name, sql, rho_req)
+        if taken != "no_account":
+            if result["status"] not in ("executed", "cache_hit"):
+                _refund_run(taken)
+            result = _with_quota(result, taken)
+        return result
+    except BaseException:
+        if taken not in (None, "no_account"):
+            _refund_run(taken)
+        raise
+    finally:
+        floor = float(getattr(settings, "PRIVGUARD_MIN_RESPONSE_MS", 0)) / 1000.0
+        remaining = padded_duration(time.perf_counter() - started, floor) - (time.perf_counter() - started)
+        if remaining > 0:
+            time.sleep(remaining)
+
+
+def _with_quota(result: dict, account_id) -> dict:
+    """Refresh the quota figures in `result["budget"]` after the run was settled."""
+    account = BudgetAccount.objects.get(account_id=account_id)
+    result["budget"].update(_quota_fields(account))
+    return result
+
+
+def _run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAULT_RHO) -> dict:
+    db = SysDatabase.objects.filter(db_name=db_name).first()
+    if not db:
+        raise DPQueryError(f"unknown database: {db_name}")
+    account = BudgetAccount.objects.filter(principal=principal, db=db).first()
+    if not account:
+        raise DPQueryError("no budget account for this principal/database")
+
+    spec = parse(sql)
+    ast_hash = spec.ast_hash()
+    fingerprint = _get_fingerprint(db, spec, ast_hash)
 
     # --- Memoisation: identical fingerprint + principal -> cached answer, rho=0
     cached = SysNoiseCache.objects.filter(fingerprint=fingerprint, principal=principal).first()
@@ -331,7 +464,7 @@ def _run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAU
 
     # representative sensitivity/scale for the ledger row
     C, M = policy.max_rows, policy.clamp_magnitude
-    sens = float(C) if spec.agg == "COUNT" else C * M
+    sens = float(C) if spec.agg == "COUNT" else (C * policy.half_range if spec.agg == "AVG" else C * M)
     scale = (accounting.sigma_from_rho(sens, rho_req) if policy.mechanism == "gaussian"
              else accounting.laplace_scale_from_rho(sens, rho_req))
 
@@ -349,6 +482,9 @@ def _run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAU
         return resp
 
     try:
+        # Per-patient budget: charge the patients this query can affect; any whose own allowance
+        # is spent are left out of it. Analysts are told nothing about who was left out.
+        policy.excluded = frozenset(_charge_patients(q.query_id, rho_req, _contributors(spec)))
         if spec.group_by:
             results, suppressed, _, _ = _execute_grouped(spec, policy, rho_req, seed)
         else:
@@ -357,6 +493,7 @@ def _run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAU
             suppressed = 0
     except DPQueryError:
         # Policy error: abort and re-raise for the API to map to 400
+        _refund_patients(q.query_id)
         _call_status("CALL sp_settle_budget(%s,%s,%s,%s,%s,%s,%s)",
                      [account.account_id, q.query_id, rho_req, False, policy.mechanism, eps_equiv, None])
         q.status = "rejected_policy"
@@ -364,6 +501,7 @@ def _run_private_query(principal, db_name: str, sql: str, rho_req: float = DEFAU
         raise
     except Exception:
         # Unexpected error: abort and mark as error
+        _refund_patients(q.query_id)
         _call_status("CALL sp_settle_budget(%s,%s,%s,%s,%s,%s,%s)",
                      [account.account_id, q.query_id, rho_req, False, policy.mechanism, eps_equiv, None])
         q.status = "error"
@@ -425,5 +563,14 @@ def _response(status, result, rho, eps, mechanism, query_id, account) -> dict:
             "rho_reserved": account.rho_reserved,
             "rho_remaining": account.rho_remaining,
             "status": account.status,
+            **_quota_fields(account),
         },
+    }
+
+
+def _quota_fields(account) -> dict:
+    return {
+        "max_queries": account.max_queries,
+        "queries_used": account.queries_used,
+        "queries_remaining": account.queries_remaining,
     }

@@ -48,8 +48,16 @@ gen_secret() {
   fi
 }
 
+# An older .env has no monitor key; add one (never overwrites an existing value).
+ensure_monitor_key() {
+  grep -q '^PRIVGUARD_MONITOR_KEY=.' .env 2>/dev/null && return 0
+  grep -v '^PRIVGUARD_MONITOR_KEY=' .env > .env.tmp || true
+  printf 'PRIVGUARD_MONITOR_KEY=%s\n' "$(gen_secret)" >> .env.tmp
+  mv .env.tmp .env
+}
+
 ensure_env() {
-  [ -f .env ] && return 0
+  if [ -f .env ]; then ensure_monitor_key; return 0; fi
   [ -f .env.example ] || die ".env is missing and so is .env.example."
   : > .env
   while IFS= read -r line || [ -n "$line" ]; do
@@ -187,21 +195,78 @@ print_urls() {
   say ""
 }
 
+# Open the tabs a demo needs. Skip with PRIVGUARD_NO_TABS=1. Needs `open` (macOS) or `xdg-open`.
+open_tabs() {
+  [ "${PRIVGUARD_NO_TABS:-}" = "1" ] && return 0
+  local opener
+  opener="$(command -v open || command -v xdg-open || true)"
+  [ -n "$opener" ] || return 0
+  local ui api repo
+  ui="$(ui_port)"; api="$(api_port)"
+  # owner/repo from the remote, nothing else: drop scheme, userinfo (a token may live there) and
+  # host, then fail closed unless what is left is exactly owner/repo.
+  repo="$(git remote get-url origin 2>/dev/null || true)"
+  repo="${repo#*://}"; repo="${repo#*@}"; repo="${repo#*[:/]}"; repo="${repo%.git}"
+  case "$repo" in
+    ''|/*|*/|*/*/*|*[!A-Za-z0-9._/-]*) repo='' ;;
+  esac
+  case "$repo" in */*) ;; *) repo='' ;; esac
+  # The branch you are on, if it is pushed (so the plan tab shows current work, not a stale main).
+  local branch
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1 || branch=main
+  case "$branch" in ''|HEAD|*[!A-Za-z0-9._/-]*) branch=main ;; esac
+  # Monitor pages (live): in demo mode the key opens a read-only session so no tab asks you to log in.
+  local key debug mon
+  key="$(grep -m1 '^PRIVGUARD_MONITOR_KEY=' .env 2>/dev/null | cut -d= -f2-)"
+  debug="$(grep -m1 '^DEBUG=' .env 2>/dev/null | cut -d= -f2-)"
+  mon() {  # mon <page>
+    if [ "$debug" = "True" ] && [ -n "$key" ]; then
+      printf 'http://localhost:%s/monitor/enter/?key=%s&next=/monitor/%s/' "$api" "$key" "$1"
+    else
+      printf 'http://localhost:%s/monitor/%s/' "$api" "$1"
+    fi
+  }
+  local urls=()
+  [ -n "$repo" ] && urls+=("https://github.com/${repo}/blob/${branch}/IMPLEMENTATION_PLAN.md")   # 1 plan
+  [ -n "$api" ]  && urls+=("$(mon backend)")                                                      # 2 backend, live
+  [ -n "$repo" ] && urls+=("https://github.com/${repo}/commits/${branch}")                        # 3 commit history
+  [ -n "$api" ]  && urls+=("$(mon database)")                                                     # 4 databases, live
+  [ -n "$api" ]  && urls+=("$(mon login)")                                                        # 5 login flow, live
+  for u in "${urls[@]}"; do "$opener" "$u" >/dev/null 2>&1 || true; sleep 0.3; done
+}
+
 # --- commands ----------------------------------------------------------------
+# Postgres applies POSTGRES_PASSWORD only when the data volume is first created. If .env was
+# regenerated since, the api fails with "password authentication failed" and exits. Re-sync the
+# role's password over the container's local socket (no old password needed, no data touched).
+sync_db_password() {
+  local pw; pw="$(grep -m1 '^POSTGRES_PASSWORD=' .env | cut -d= -f2-)"
+  [ -n "$pw" ] || return 0
+  printf "ALTER USER privguard PASSWORD :'pw';\n" \
+    | compose exec -T -e PGPW="$pw" db sh -c 'psql -q -U privguard -d safehealth -v ON_ERROR_STOP=1 -v pw="$PGPW"' \
+    >/dev/null 2>&1 || warn "Could not sync the database password; if the api cannot log in, run ./run.sh reset."
+}
+
 cmd_up() {
   require_docker
   info "Building and starting containers..."
+  compose up -d --wait db
+  sync_db_password
   compose up -d "$@"
   local port; port="$(api_port)"
   [ -n "$port" ] || die "The api service did not publish a port. Check: ./run.sh logs api"
   wait_for_api "$port" || true
   sync_frontend_env "$port"
   print_urls
+  open_tabs
 }
 
 cmd_dev() {
   require_docker
   info "Starting db + api..."
+  compose up -d --wait db
+  sync_db_password
   compose up -d db api
   local port; port="$(api_port)"
   [ -n "$port" ] || die "The api service did not publish a port. Check: ./run.sh logs api"

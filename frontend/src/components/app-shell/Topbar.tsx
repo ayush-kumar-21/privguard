@@ -63,11 +63,24 @@ export function Topbar({ title, elevated = false }: { title: string; elevated?: 
         {isPending ? (
           <Skeleton className="hidden h-4 w-36 sm:block" />
         ) : budget ? (
-          <BudgetMiniMeter
-            remaining={budget.rho_remaining}
-            total={budget.rho_total}
-            className="hidden sm:flex"
-          />
+          <>
+            <BudgetMiniMeter
+              remaining={budget.rho_remaining}
+              total={budget.rho_total}
+              className="hidden sm:flex"
+            />
+            {budget.queries_remaining !== null ? (
+              <span
+                className={cn(
+                  'num hidden text-small sm:inline',
+                  budget.queries_remaining === 0 ? 'text-danger' : 'text-muted',
+                )}
+                title="Runs your administrator has allowed you"
+              >
+                {budget.queries_remaining} / {budget.max_queries} runs left
+              </span>
+            ) : null}
+          </>
         ) : null}
 
         <Separator orientation="vertical" className="hidden h-6 sm:block" />
@@ -91,9 +104,9 @@ export function Topbar({ title, elevated = false }: { title: string; elevated?: 
                 {principal?.username}
               </p>
               <div className="mt-1.5 flex flex-wrap gap-1">
-                {principal?.roles.map((role) => (
+                {(principal?.assigned_roles ?? principal?.roles ?? []).map((role) => (
                   <Badge key={role} tone="outline">
-                    {ROLE_LABEL[role] ?? role}
+                    {ROLE_LABEL[role] ?? role.replace(/_/g, ' ')}
                   </Badge>
                 ))}
               </div>

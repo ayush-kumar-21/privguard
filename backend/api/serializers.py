@@ -72,9 +72,16 @@ class LabResultSerializer(serializers.ModelSerializer):
 
 # --- Policy / access-control admin (dba-gated writes) ---
 class RoleSerializer(serializers.ModelSerializer):
+    # The base role a job role carries (null for the base roles themselves).
+    carries = serializers.SerializerMethodField()
+
     class Meta:
         model = Role
-        fields = "__all__"
+        fields = ("role_id", "role_name", "description", "carries")
+
+    def get_carries(self, obj) -> str | None:
+        from accounts.roles import carried_role
+        return carried_role(obj.role_name)
 
 
 class ColumnGrantSerializer(serializers.ModelSerializer):
@@ -99,6 +106,7 @@ class TablePrivacySerializer(serializers.ModelSerializer):
 class BudgetAccountSerializer(serializers.ModelSerializer):
     principal_name = serializers.CharField(source="principal.username", read_only=True)
     rho_remaining = serializers.FloatField(read_only=True)
+    queries_remaining = serializers.IntegerField(read_only=True)
     delta_spent = serializers.SerializerMethodField()
 
     class Meta:
@@ -106,7 +114,7 @@ class BudgetAccountSerializer(serializers.ModelSerializer):
         fields = (
             "account_id", "principal_name", "rho_total", "rho_spent",
             "rho_reserved", "rho_remaining", "delta_target", "delta_spent",
-            "window_type", "status",
+            "window_type", "status", "max_queries", "queries_used", "queries_remaining",
         )
 
     def get_delta_spent(self, obj) -> float:
@@ -141,3 +149,14 @@ class QueryAuditSerializer(serializers.ModelSerializer):
         if not (user and (user.is_superuser or user.has_role("dba") or user.has_role("auditor"))):
             data.pop("latency_ms", None)
         return data
+
+
+class PatientBudgetSerializer(serializers.Serializer):
+    """One patient's budget (from the v_patient_budget view). Patient ids only: no identifiers."""
+    patient_id = serializers.IntegerField()
+    rho_total = serializers.FloatField()
+    rho_spent = serializers.FloatField()
+    rho_remaining = serializers.FloatField()
+    status = serializers.CharField()
+    charges = serializers.IntegerField()
+    last_charged_at = serializers.DateTimeField(allow_null=True)

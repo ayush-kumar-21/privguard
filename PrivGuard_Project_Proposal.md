@@ -39,7 +39,7 @@ answer at zero cost, so the averaging attack has nothing to average.
 ## 3. Objectives
 
 1. Design a 3NF relational schema covering both the SafeHealth clinical dataset
-   and the system catalog that governs it (28 entities, 39 relationships).
+   and the system catalog that governs it (30 entities, 42 relationships).
 2. Implement a differentially private aggregate query service — Laplace,
    discrete Laplace and Gaussian mechanisms with clamping and contribution
    bounding — reached only through the Django ORM, never raw analyst SQL.
@@ -92,7 +92,7 @@ is the Django + PostgreSQL + ORM application.
 
 | # | Deliverable | Status |
 |---|---|---|
-| 1 | ER model — 28 entities, 39 relationships | Complete |
+| 1 | ER model — 30 entities, 42 relationships | Complete |
 | 2 | 3NF relational schema, migrations, constraints, 144 indexes | Complete |
 | 3 | Data dictionary | Complete (`PrivGuard_Data_Dictionary.md`) |
 | 4 | DP query service with budget enforcement | Complete |

@@ -16,6 +16,8 @@ from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
+from .roles import effective_role_names
+
 
 class Role(models.Model):
     role_id = models.AutoField(primary_key=True)
@@ -56,8 +58,12 @@ class Principal(AbstractUser):
     class Meta:
         db_table = "sys_principal"
 
+    def effective_roles(self) -> set[str]:
+        """Assigned roles plus the base roles they carry (see accounts/roles.py)."""
+        return effective_role_names(self.roles.values_list("role_name", flat=True))
+
     def has_role(self, role_name: str) -> bool:
-        return self.roles.filter(role_name=role_name).exists()
+        return role_name in self.effective_roles()
 
 
 class PrincipalRole(models.Model):

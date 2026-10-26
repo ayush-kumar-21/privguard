@@ -28,7 +28,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
 
       - name: Run the oracle test suite
         run: bash ./run.sh oracle
@@ -56,14 +56,14 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
 
       # The pgwire tests spawn the real daemon and drive it through the HTTP API. Same
       # toolchain pin as the engine job.
       - name: Build the engine daemon
         run: |
-          rustup toolchain install 1.83 --profile minimal
-          cargo +1.83 build -p privguardd --manifest-path engine/Cargo.toml
+          rustup toolchain install 1.97 --profile minimal
+          cargo +1.97 build -p privguardd --manifest-path engine/Cargo.toml
 
       - name: Run the gateway test suite
         run: bash ./run.sh gateway
@@ -77,7 +77,7 @@ jobs:
 
       - name: Pin the toolchain
         # Matches engine/Dockerfile, so a green CI means a green local build.
-        run: rustup toolchain install 1.83 --profile minimal --component rustfmt,clippy
+        run: rustup toolchain install 1.97 --profile minimal --component rustfmt,clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -85,15 +85,15 @@ jobs:
 
       - name: Formatting
         working-directory: engine
-        run: cargo +1.83 fmt --all --check
+        run: cargo +1.97 fmt --all --check
 
       - name: Clippy
         working-directory: engine
-        run: cargo +1.83 clippy --workspace --all-targets -- -D warnings
+        run: cargo +1.97 clippy --workspace --all-targets -- -D warnings
 
       - name: Tests
         working-directory: engine
-        run: cargo +1.83 test --workspace
+        run: cargo +1.97 test --workspace
 
   # ------------------------------------------------ legacy Django backend
   # Retired in Phase 5.5 once the engine passes the oracle

@@ -8,15 +8,21 @@ Each query runs as the non-private plan (`exact`: Scan, Filter, Aggregate) and a
 
 | query | end-to-end exact | end-to-end DP | overhead | operators only, exact | operators only, DP | ratio |
 |---|---:|---:|---:|---:|---:|---:|
-| `COUNT(*)` | 5.68 ms | 5.95 ms | **+5%** | 1.34 ms | 3.10 ms | 2.3x |
-| `SUM(total_charge) WHERE dept_id = 2` | 4.24 ms | 4.56 ms | **+8%** | 1.32 ms | 1.61 ms | 1.2x |
-| `COUNT(*) GROUP BY admission_type` | 4.71 ms | 8.60 ms | **+83%** | 1.81 ms | 5.77 ms | 3.2x |
+| `COUNT(*)` | 4.12 ms | 6.22 ms | **+51%** | 1.33 ms | 3.29 ms | 2.5x |
+| `SUM(total_charge) WHERE dept_id = 2` | 4.15 ms | 4.47 ms | **+8%** | 1.34 ms | 1.62 ms | 1.2x |
+| `COUNT(*) GROUP BY admission_type` | 4.63 ms | 8.47 ms | **+83%** | 1.85 ms | 5.69 ms | 3.1x |
+
+Measured after the exact integer samplers (`SPEC.md` A5) replaced the float ones; the DP column did not
+move, so the samplers cost nothing measurable next to the scan. Run-to-run noise on a laptop is large: the
+exact `COUNT` baseline read 5.7 ms in an earlier run and 4.1 ms in this one, which is why the `COUNT` overhead
+swung from +5% to +51%. Treat scalar overheads as "between a few percent and about 50%", not as a point
+estimate; the grouped figure is stable at about +80%.
 
 *End-to-end* includes building the plan; *operators only* builds it outside the timer.
 
 **Reading the numbers**
 
-- Scalar queries cost 5-8% end to end. The privacy operators are cheap next to reading the heap.
+- Scalar queries cost roughly 8-50% end to end (see the noise note above). The privacy operators are cheap next to reading the heap.
 - Grouped queries pay for contribution bounding across groups and partition selection (a keyed
   noisy threshold per group): roughly 1.8x end to end.
 - Nothing here is I/O-bound in the usual sense. `HeapScan` reads the whole heap into memory when the

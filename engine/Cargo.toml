@@ -15,7 +15,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.89"
 license = "MIT"
 repository = "https://github.com/sugeshkumar11/privguard"
 
@@ -31,17 +31,16 @@ privguard-plan = { path = "crates/privguard-plan" }
 privguard-privacy = { path = "crates/privguard-privacy" }
 privguard-crypto = { path = "crates/privguard-crypto" }
 privguard-wire = { path = "crates/privguard-wire" }
-sqlparser = "0.53.0"
+sqlparser = "0.63.0"
 # "pure": no C compiler needed; the ledger hashes a few dozen bytes per entry.
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "io-util", "macros", "sync", "time"] }
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 blake3 = { version = "1.5", features = ["pure"] }
-# Dev-only. CI builds with Rust 1.83, so these are pinned below the releases whose dependencies
-# need edition 2024 (proptest >= 1.7 via rand_xorshift 0.5, criterion's clap_lex 1.x); Cargo.lock
-# holds clap at 4.5.20. Lift the pins when CI moves past 1.85.
+# Dev-only. These were pinned below their latest releases while CI built with Rust 1.83; CI now
+# uses the same toolchain as engine/Dockerfile, so the pins are gone and Dependabot manages them.
 # Property tests (Phase 3.7); no fork/tempfile features so it stays light.
-criterion = { version = "0.5", default-features = false }
-proptest = { version = "=1.6.0", default-features = false, features = ["std"] }
+criterion = { version = "0.8", default-features = false }
+proptest = { version = "1.12", default-features = false, features = ["std"] }
 
 [profile.release]
 lto = "thin"

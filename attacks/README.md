@@ -29,6 +29,7 @@ each against a fresh engine, and runs in CI. Every attack is expected to fail:
 | Repeat-and-average (15 identical queries) | one answer, one charge; repeats are cache hits |
 | Tautology rewrite (`total_charge <= 1000000 + k`) | same rows, different fingerprint: refused by overlap, so at most one noise draw |
 | Restart, then rewrite (`privguardd/tests/engine.rs`) | overlap history is rebuilt from the audit log, so the rewrite is still refused |
+| Floating-point noise gaps (Mironov 2012) | released values are `integer * step` from exact integer samplers; checked in `oracle/tests/test_mechanisms.py` and `privguard-privacy` (`released_values_lie_on_the_grid_whatever_the_input`) |
 | Budget exhaustion | the analyst is cut off (429) at the allowance; spent never exceeds total; ledger verifies |
 | SQL injection and non-aggregate SQL (10 forms) | refused with 400/403, no charge, engine unaffected |
 | Quote and comment smuggling | treated as a literal / plain `COUNT(*)`; no widened predicate |

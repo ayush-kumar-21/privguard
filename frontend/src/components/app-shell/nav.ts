@@ -5,6 +5,8 @@ import {
   Flask,
   Gauge,
   IdentificationBadge,
+  UsersThree,
+  HeartStraight,
   ListChecks,
   ShieldCheck,
   Stethoscope,
@@ -59,10 +61,12 @@ const ALL_GROUPS: NavGroup[] = [
     items: [
       { to: '/governance/policies', label: 'Policies', icon: ListChecks, roles: ['dba'], legacy: true },
       { to: '/governance/grants', label: 'Column grants', icon: Database, roles: ['dba'], legacy: true },
+      { to: '/governance/users', label: 'Users', icon: UsersThree, roles: ['dba'], legacy: true },
       { to: '/governance/roles', label: 'Roles', icon: IdentificationBadge, roles: ['dba'], legacy: true },
       { to: '/governance/grid', label: 'Policy grid', icon: ListChecks, roles: ['dba', 'auditor'], gatewayOnly: true },
       { to: '/governance/audit', label: 'Audit', icon: FileText, roles: ['auditor', 'dp_analyst'] },
       { to: '/governance/ledger', label: 'Ledger', icon: ShieldCheck, roles: ['auditor'] },
+      { to: '/governance/patients', label: 'Patient budgets', icon: HeartStraight, roles: ['dba'], legacy: true },
     ],
   },
   {

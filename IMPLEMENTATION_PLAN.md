@@ -12,7 +12,7 @@ section first, then continue at the first unchecked box.
 ## Resume point
 
 > **Done: Phases 0-4 of `TEAM_PLAN.md`, and most of Phase 5 (bug bash, evaluation).**
-> **Left in Phase 5: 5.5 cutover (retire Django), 5.4 report, 5.6 demo polish, and a repo-wide
+> **Left in Phase 5: 5.4 report, 5.6 demo polish, and a repo-wide
 > `/code-review` + `/security-review` pass.**
 
 Last updated: 2026-10-21 (Ayush)
@@ -170,7 +170,7 @@ Goal: the three core contributions from the blueprint.
 - [x] 5.2 Utility evaluation — error vs. ρ curves, exported for the paper
 - [x] 5.3 Attack lab: repeat-and-average demonstrably defeated by the noise cache — v2 against the real engine in `gateway/tests/test_attacks_engine.py` (24 tests)
 - [ ] 5.4 Paper / report writing
-- [ ] 5.5 **Cutover** — retire the Django backend, compose runs engine + gateway + ui
+- [-] 5.5 **Cutover** — retire the Django backend, compose runs engine + gateway + ui. **DECIDED 2026-10-23 (Ayush): do NOT delete `backend/`.** Django stays as the demo stack; the engine and gateway run alongside it.
 - [ ] 5.6 Demo polish and final README
 
 ---
@@ -179,7 +179,8 @@ Goal: the three core contributions from the blueprint.
 
 Bugs found and not yet fixed. Close one by fixing it with a regression test, then tick it here.
 
-- [ ] **P0-2b** 5 high + 2 moderate `npm audit` findings remain after `npm audit fix`. All are build-time and come through `tailwindcss` 3.x (`braces`, `micromatch`, `fast-glob`, `chokidar`, `postcss-nested`); the only fix is the Tailwind 3 -> 4 major upgrade. `npm audit --audit-level=high` in CI stays red until it lands. Found 2026-10-21 (Sugeshkumar).
+- [ ] **Held back from the consolidated dependency PR** (each needs its own change, not a bump): **monaco-editor 0.57** (the SQL console imports `monaco-editor/esm/vs/editor/editor.all` and `basic-languages/pgsql`, which moved) and **tailwindcss 4** (new PostCSS plugin, `@tailwind` directives replaced by `@import "tailwindcss"`, JS config model, changed default borders/shadows/rings: needs visual review). Dependabot is told to ignore both in `.github/dependabot.yml` until then. Tailwind 4 would also clear the dev-only npm audit findings.
+- [ ] **P0-2b** (Since the consolidated dependency PR: `npm audit --omit=dev` is clean and the full audit is down to 3 moderate, dev only.) Originally: 5 high + 2 moderate `npm audit` findings remained after `npm audit fix`. All are build-time and come through `tailwindcss` 3.x (`braces`, `micromatch`, `fast-glob`, `chokidar`, `postcss-nested`); the only fix is the Tailwind 3 -> 4 major upgrade. `npm audit --audit-level=high` in CI stays red until it lands. Found 2026-10-21 (Sugeshkumar).
 
 ## Phase 4-5 findings (2026-10-21, Ayush)
 
@@ -200,12 +201,21 @@ Bugs found and not yet fixed. Close one by fixing it with a regression test, the
   sqrt(G)*C*(M); Laplace at scale D1/sqrt(2*rho) is eps = sqrt(2*rho) pure DP, hence rho-zCDP;
   Gaussian at sigma = D2/sqrt(2*rho) is exactly rho-zCDP; AVG and grouped queries split rho
   and compose to the charged total. No divergence from the spec.
-- **Known limitations, not bugs (document in the report):** (1) noise is a continuous inverse-CDF
-  sample over 53-bit uniforms, so the floating-point attack on Laplace (Mironov 2012) is out of
-  scope; (2) budgets are per principal, so two colluding accounts get two independent noise
+- **Mironov attack: closed (`SPEC.md` A5).** The float Laplace/Gaussian samplers are replaced by exact
+  integer samplers (CKS20) on a grid; released values are `integer * step`. Proved by tests rather than
+  asserted: both samplers match their exact pmf, every output lies on the grid for inputs that differ in
+  the last float bits, parameters round toward more noise, and the engine agrees with the oracle
+  exactly on all 1000 differential queries.
+- **Known limitations, not bugs (document in the report):** (1) the exact samplers loop a random
+  number of times, so latency is a weak side channel (Jin et al.); the Django path pads responses to a
+  floor, the engine does not; (2) budgets are per principal, so two colluding accounts get two independent noise
   draws and their privacy loss composes; (3) `HeapScan` loads the whole table into memory;
   (4) rename is not followed by a directory fsync; (5) startup replays every executed query
-  to rebuild the overlap history, O(history x table).
+  to rebuild the overlap history, O(history x table); (6) a per-stage rho below ~5e-10 is refused.
+- **Open question for the team (not changed):** partition selection charges each group as if a unit touched
+  one group, though a unit can touch G. The Django backend corrects this (`partition_params`: per-group
+  `eps0 = sqrt(2 rho_part / G)`, and a `delta` split across G); the oracle and engine follow the frozen
+  SPEC 4.5 and do not. Fixing it changes grouped results and needs a SPEC decision.
 - Utility curves: `docs/eval/utility_vs_rho.md`. Benchmarks: `docs/eval/benchmarks.md`.
 
 ## Commands
@@ -218,7 +228,7 @@ Bugs found and not yet fixed. Close one by fixing it with a regression test, the
 | `run.bat engine` | build and test the Rust engine in Docker |
 | `run.bat data` | regenerate the SafeHealth CSVs into `data/safehealth/` |
 
-Rust needs no host toolchain — `engine/Dockerfile` pins `rust:1.83-slim` and CI
+Rust needs no host toolchain — `engine/Dockerfile` pins `rust:1.97-slim` and CI
 pins the same version, so a green local run means a green CI.
 
 ## Conventions

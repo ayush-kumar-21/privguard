@@ -26,7 +26,7 @@
    "expected": {
     "rows": [
      {
-      "value": 196
+      "value": 193
      }
     ],
     "mechanism": "discrete_laplace",
@@ -66,7 +66,7 @@
    "expected": {
     "rows": [
      {
-      "value": 82
+      "value": 106
      }
     ],
     "mechanism": "discrete_laplace",
@@ -111,7 +111,7 @@
    "expected": {
     "rows": [
      {
-      "value": 27
+      "value": 60
      }
     ],
     "mechanism": "discrete_laplace",
@@ -151,7 +151,7 @@
    "expected": {
     "rows": [
      {
-      "value": 140
+      "value": 139
      }
     ],
     "mechanism": "discrete_laplace",
@@ -196,7 +196,7 @@
    "expected": {
     "rows": [
      {
-      "value": 107
+      "value": 102
      }
     ],
     "mechanism": "discrete_laplace",
@@ -234,7 +234,7 @@
    "expected": {
     "rows": [
      {
-      "value": 130117.371
+      "value": 126420.8984
      }
     ],
     "mechanism": "laplace",
@@ -278,7 +278,7 @@
    "expected": {
     "rows": [
      {
-      "value": 33875.4414
+      "value": 40620.1172
      }
     ],
     "mechanism": "laplace",
@@ -327,7 +327,7 @@
    "expected": {
     "rows": [
      {
-      "value": 53376.5264
+      "value": 48525.3906
      }
     ],
     "mechanism": "laplace",
@@ -365,7 +365,7 @@
    "expected": {
     "rows": [
      {
-      "value": 48866.5352
+      "value": 47995.3125
      }
     ],
     "mechanism": "laplace",
@@ -403,7 +403,7 @@
    "expected": {
     "rows": [
      {
-      "value": 676.9717
+      "value": 547.6896
      }
     ],
     "mechanism": "laplace",
@@ -447,7 +447,7 @@
    "expected": {
     "rows": [
      {
-      "value": 588.8847
+      "value": 747.8386
      }
     ],
     "mechanism": "laplace",
@@ -491,7 +491,7 @@
    "expected": {
     "rows": [
      {
-      "value": 280.1098
+      "value": 332.1741
      }
     ],
     "mechanism": "laplace",
@@ -526,19 +526,15 @@
     "rows": [
      {
       "admission_type": "ELECTIVE",
-      "value": 87.2437
+      "value": 70.1318
      },
      {
       "admission_type": "EMERGENCY",
-      "value": 85.5584
-     },
-     {
-      "admission_type": "TRAUMA",
-      "value": 2.9461
+      "value": 68.6816
      },
      {
       "admission_type": "URGENT",
-      "value": 30.9656
+      "value": 26.3135
      }
     ],
     "mechanism": "gaussian",
@@ -546,7 +542,7 @@
     "eps_equivalent": 5.756521769756932,
     "sensitivity": 8.660254037844386,
     "scale": 9.682458365518542,
-    "suppressed_groups": 0
+    "suppressed_groups": 1
    }
   },
   {
@@ -573,15 +569,15 @@
     "rows": [
      {
       "dept_id": 1,
-      "value": 56.8156
+      "value": 53.1006
      },
      {
       "dept_id": 2,
-      "value": 55.4847
+      "value": 70.8984
      },
      {
       "dept_id": 3,
-      "value": 64.2429
+      "value": 84.9023
      }
     ],
     "mechanism": "gaussian",
@@ -616,19 +612,19 @@
     "rows": [
      {
       "admission_type": "ELECTIVE",
-      "value": 90.3184
+      "value": 91.4551
      },
      {
       "admission_type": "EMERGENCY",
-      "value": 80.6723
+      "value": 75.6152
      },
      {
       "admission_type": "TRAUMA",
-      "value": 11.3847
+      "value": 19.5459
      },
      {
       "admission_type": "URGENT",
-      "value": 20.6447
+      "value": 13.4521
      }
     ],
     "mechanism": "gaussian",
@@ -669,19 +665,19 @@
     "rows": [
      {
       "admission_type": "ELECTIVE",
-      "value": 54.3635
+      "value": 60.7666
      },
      {
       "admission_type": "EMERGENCY",
-      "value": 47.5526
+      "value": 63.4033
      },
      {
       "admission_type": "TRAUMA",
-      "value": 5.0945
+      "value": 12.7393
      },
      {
       "admission_type": "URGENT",
-      "value": 5.7823
+      "value": 35.6396
      }
     ],
     "mechanism": "gaussian",
@@ -720,19 +716,15 @@
     "rows": [
      {
       "admission_type": "ELECTIVE",
-      "value": 74129.1042
+      "value": 76865.2344
      },
      {
       "admission_type": "EMERGENCY",
-      "value": 44813.1966
-     },
-     {
-      "admission_type": "TRAUMA",
-      "value": 11326.6548
+      "value": 54829.1016
      },
      {
       "admission_type": "URGENT",
-      "value": 16551.9716
+      "value": 16230.4688
      }
     ],
     "mechanism": "gaussian",
@@ -740,7 +732,7 @@
     "eps_equivalent": 5.756521769756932,
     "sensitivity": 8660.254037844386,
     "scale": 9682.458365518542,
-    "suppressed_groups": 0
+    "suppressed_groups": 1
    }
   },
   {
@@ -777,19 +769,15 @@
     "rows": [
      {
       "dept_id": 1,
-      "value": 37432.4825
+      "value": 43593.75
      },
      {
       "dept_id": 2,
-      "value": 44793.8921
+      "value": 39003.9062
      },
      {
       "dept_id": 3,
-      "value": 53543.0942
-     },
-     {
-      "dept_id": 4,
-      "value": 3355.8899
+      "value": 41865.2344
      }
     ],
     "mechanism": "gaussian",
@@ -797,7 +785,7 @@
     "eps_equivalent": 8.433844377699677,
     "sensitivity": 8660.254037844386,
     "scale": 6846.531968814576,
-    "suppressed_groups": 0
+    "suppressed_groups": 1
    }
   },
   {
@@ -828,11 +816,11 @@
     "rows": [
      {
       "admission_type": "ELECTIVE",
-      "value": 25601.6291
+      "value": 24542.1875
      },
      {
       "admission_type": "EMERGENCY",
-      "value": 13075.4682
+      "value": 15097.6562
      }
     ],
     "mechanism": "gaussian",
@@ -866,12 +854,8 @@
    "expected": {
     "rows": [
      {
-      "dept_id": 1,
-      "value": 44.0781
-     },
-     {
       "dept_id": 2,
-      "value": 9.4233
+      "value": 50.4102
      }
     ],
     "mechanism": "gaussian",
@@ -879,7 +863,7 @@
     "eps_equivalent": 1.0713043539513865,
     "sensitivity": 8.660254037844386,
     "scale": 48.4122918275927,
-    "suppressed_groups": 2
+    "suppressed_groups": 3
    }
   }
  ]

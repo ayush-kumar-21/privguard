@@ -50,6 +50,7 @@ class Command(BaseCommand):
         self.stdout.write(f"Found {len(leaked)} leaked reservation(s):")
         for query_id, principal_id, account_id, rho_delta in leaked:
             with connection.cursor() as cur:
+                cur.execute("SELECT fn_refund_patients(%s)", [query_id])  # patients charged for it
                 cur.execute(
                     "CALL sp_settle_budget(%s, %s, %s, %s, %s, %s, %s)",
                     [account_id, query_id, rho_delta, False, 'reaper', 0.0, None],

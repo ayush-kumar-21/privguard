@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     "audit",
     "safehealth",
     "api",
+    "monitor",
 ]
 
 MIDDLEWARE = [
@@ -56,6 +57,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "monitor.middleware.RequestLogMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -166,3 +168,7 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# --- Monitor (staff-only live pages at /monitor/) ---------------------------------------
+# In demo mode (DEBUG on) a key lets ./run.sh open the monitor tabs without a login on each.
+PRIVGUARD_MONITOR_KEY = env("PRIVGUARD_MONITOR_KEY", default="")

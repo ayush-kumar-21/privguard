@@ -8,9 +8,9 @@ derived from the ER model in `PrivGuard_ER_Documentation.md`.
 | Group | Tables |
 |---|---|
 | Clinical dataset (SafeHealth) | 8 |
-| Governance catalog (`sys_*`) | 22 |
+| Governance catalog (`sys_*`) | 24 |
 | Framework / auth internals | 9 |
-| **Total** | **39** |
+| **Total** | **41** |
 
 ---
 
@@ -211,6 +211,43 @@ PrivGuard's own control plane — schema catalog, privacy policy, principals and
 - `sys_budget_account_db_id_af655112` — btree (db_id)
 - `sys_budget_account_principal_id_a73f8a0e` — btree (principal_id)
 - `uq_account_principal_db` — UNIQUE btree (principal_id, db_id)
+
+### `sys_patient_budget`  — one row per patient
+
+| # | Column | Type | Key | Null | Default |
+|---|---|---|---|---|---|
+| 1 | `patient_id` | `integer` | PK, FK→`patients.patient_id` | NN | — |
+| 2 | `rho_total` | `float8` | — | NN | — |
+| 3 | `rho_spent` | `float8` | — | NN | `0` |
+| 4 | `status` | `varchar(12)` | — | NN | `'active'` |
+
+**Check constraints**
+
+- `ck_patient_rho_total_pos` — `rho_total > 0`
+- `ck_patient_rho_spent_nonneg` — `rho_spent >= 0`
+- `ck_patient_never_oversold` — `rho_spent <= rho_total`
+
+**Triggers / routines.** Rows are created by `trg_patient_budget_init` (AFTER INSERT ON `patients`); spending moves only through `fn_charge_patients` and `fn_refund_patients`.
+
+### `sys_patient_ledger`  — one row per charge or refund
+
+| # | Column | Type | Key | Null | Default |
+|---|---|---|---|---|---|
+| 1 | `entry_id` | `bigint` | PK | NN | `identity (by default)` |
+| 2 | `patient_id` | `integer` | FK→`patients.patient_id` | NN | — |
+| 3 | `query_id` | `bigint` | FK→`sys_query.query_id` |  | — |
+| 4 | `op` | `varchar(10)` | — | NN | — |
+| 5 | `rho_delta` | `float8` | — | NN | — |
+| 6 | `rho_after` | `float8` | — | NN | — |
+| 7 | `logged_at` | `timestamptz` | — | NN | — |
+| 8 | `prev_hash` | `bytea` | — | NN | — |
+| 9 | `entry_hash` | `bytea` | — | NN | — |
+
+**Triggers.** `trg_patient_ledger_hash` (BEFORE INSERT, per-patient SHA-256 chain), `trg_patient_ledger_readonly` (BEFORE UPDATE/DELETE: append-only), `trg_patient_ledger_no_truncate`.
+
+**Indexes:** `idx_patient_ledger` — btree (patient_id, entry_id); the primary key.
+
+**View `v_patient_budget`** — per patient: allowance, spent, remaining, status, number of charges, last charge time. Verified by `fn_verify_patient_chain(patient_id)`.
 
 ### `sys_budget_ledger`  — 40 rows
 
