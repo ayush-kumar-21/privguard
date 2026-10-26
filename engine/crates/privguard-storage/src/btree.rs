@@ -485,7 +485,7 @@ impl<S: PageStore> BPlusTree<S> {
         leaves: &mut Vec<(PageId, usize)>,
     ) -> Result<usize> {
         let bad = |m: &str| Error::engine(format!("B+ tree invariant violated: {m}"));
-        let in_bounds = |e: &Entry| lo.map_or(true, |l| *e >= l) && hi.map_or(true, |h| *e < h);
+        let in_bounds = |e: &Entry| lo.is_none_or(|l| *e >= l) && hi.is_none_or(|h| *e < h);
         match self.read_node(page)? {
             Node::Leaf(l) => {
                 if !l.entries.windows(2).all(|w| w[0] < w[1]) {
@@ -655,7 +655,7 @@ mod tests {
         for step in 0..4000 {
             let key = (rng.next() % 150) as i64;
             let r = rng.next() % 4;
-            if rng.next() % 3 == 0 {
+            if rng.next().is_multiple_of(3) {
                 let want = model.remove(&(key, r));
                 assert_eq!(t.delete(key, rid(r)).unwrap(), want);
             } else {
