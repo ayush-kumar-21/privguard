@@ -172,3 +172,5 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # --- Monitor (staff-only live pages at /monitor/) ---------------------------------------
 # In demo mode (DEBUG on) a key lets ./run.sh open the monitor tabs without a login on each.
 PRIVGUARD_MONITOR_KEY = env("PRIVGUARD_MONITOR_KEY", default="")
+# IMPLEMENTATION_PLAN.md, shown on the System design page (docker-compose mounts it read-only).
+PRIVGUARD_PLAN_FILE = env("PRIVGUARD_PLAN_FILE", default=str(BASE_DIR / "IMPLEMENTATION_PLAN.md"))

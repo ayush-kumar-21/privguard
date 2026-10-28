@@ -228,11 +228,11 @@ open_tabs() {
     fi
   }
   local urls=()
-  [ -n "$repo" ] && urls+=("https://github.com/${repo}/blob/${branch}/IMPLEMENTATION_PLAN.md")   # 1 plan
-  [ -n "$api" ]  && urls+=("$(mon backend)")                                                      # 2 backend, live
-  [ -n "$repo" ] && urls+=("https://github.com/${repo}/commits/${branch}")                        # 3 commit history
-  [ -n "$api" ]  && urls+=("$(mon database)")                                                     # 4 databases, live
-  [ -n "$api" ]  && urls+=("$(mon login)")                                                        # 5 login flow, live
+  [ -n "$ui" ]   && urls+=("http://localhost:${ui}/")                                              # 1 the PrivGuard app
+  [ -n "$api" ]  && urls+=("$(mon database)")                                                      # 2 databases, live
+  [ -n "$api" ]  && urls+=("$(mon design)")                                                        # 3 system design: plan + architecture
+  [ -n "$api" ]  && urls+=("$(mon backend)")                                                       # 4 backend, live
+  [ -n "$repo" ] && urls+=("https://github.com/${repo}/tree/${branch}")                            # 5 the GitHub branch
   for u in "${urls[@]}"; do "$opener" "$u" >/dev/null 2>&1 || true; sleep 0.3; done
 }
 

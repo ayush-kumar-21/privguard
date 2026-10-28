@@ -18,6 +18,8 @@ services:
 
   api:
     build: ./backend
+    volumes:
+      - ./IMPLEMENTATION_PLAN.md:/app/IMPLEMENTATION_PLAN.md:ro
     environment:
       DEBUG: ${DEBUG:-False}
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env (copy .env.example)}

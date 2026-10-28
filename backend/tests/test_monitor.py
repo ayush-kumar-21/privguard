@@ -33,7 +33,7 @@ def staff_client(user):
     return client
 
 
-PAGES = ["backend", "database", "login"]
+PAGES = ["backend", "database", "login", "design"]
 
 
 # --- who may look ---------------------------------------------------------------
@@ -199,3 +199,75 @@ def test_the_monitor_never_shows_which_patients_a_query_touched(staff, account, 
     tables = {t["name"]: t for t in data["tables"]}
     assert tables["sys_patient_ledger"]["rows"] is None
     assert tables["sys_patient_budget"]["rows"] == 6  # one per patient: no query changes it
+
+
+# --- system design: the plan, parsed live ------------------------------------------------------
+PLAN = """# Plan
+
+## Resume point
+
+> **Done: phases 0 and 1.**
+> Next: phase 2.
+
+## Phase 0 \u2014 Repo preparation
+
+- [x] 0.1 first thing
+- [x] 0.2 second thing
+
+## Phase 1 \u2014 WK 1\u20132 \u00b7 Foundation
+
+- [x] 1.1 done thing
+- [ ] 1.2 **open** thing with `code`
+- [-] 1.3 dropped on purpose
+
+## Bug log
+
+- [ ] **P0** this is a bug, not a phase task
+"""
+
+
+def test_the_plan_parser_counts_done_open_and_dropped():
+    from monitor.views import parse_plan
+    plan = parse_plan(PLAN)
+    assert [p["id"] for p in plan["phases"]] == ["Phase 0", "Phase 1"]
+    p0, p1 = plan["phases"]
+    assert (p0["done"], p0["total"]) == (2, 2)
+    assert (p1["done"], p1["total"]) == (1, 2)                      # the dropped task is not counted
+    assert [i["state"] for i in p1["items"]] == ["done", "open", "dropped"]
+    assert p1["items"][1]["text"] == "1.2 open thing with code"     # markdown noise removed
+    assert plan["resume"] == ["Done: phases 0 and 1.", "Next: phase 2."]
+    assert all("bug" not in i["text"] for p in plan["phases"] for i in p["items"])  # bug log is not a phase
+
+
+def test_the_design_feed_reads_the_configured_plan(staff, settings, tmp_path):
+    plan_file = tmp_path / "PLAN.md"
+    plan_file.write_text(PLAN, encoding="utf-8")
+    settings.PRIVGUARD_PLAN_FILE = str(plan_file)
+    data = staff_client(staff).get("/monitor/feed/design/").json()
+    assert data["available"] is True and len(data["phases"]) == 2 and data["phases"][1]["done"] == 1
+
+
+def test_a_missing_plan_file_is_reported_not_a_crash(staff, settings):
+    settings.PRIVGUARD_PLAN_FILE = "/nonexistent/PLAN.md"
+    resp = staff_client(staff).get("/monitor/feed/design/")
+    assert resp.status_code == 200 and resp.json() == {"phases": [], "resume": [], "available": False}
+
+
+def test_the_real_plan_in_the_repo_parses(staff, settings):
+    """The shipped IMPLEMENTATION_PLAN.md must stay readable by the page."""
+    import pathlib
+    real = pathlib.Path(__file__).resolve().parents[2] / "IMPLEMENTATION_PLAN.md"
+    if not real.exists():
+        pytest.skip("repo root not mounted (running inside the container)")
+    from monitor.views import parse_plan
+    plan = parse_plan(real.read_text(encoding="utf-8"))
+    assert len(plan["phases"]) >= 6 and sum(p["total"] for p in plan["phases"]) > 40
+
+
+def test_the_design_page_shows_the_architecture_and_is_staff_only(db, staff):
+    assert Client().get("/monitor/design/").status_code == 302
+    page = staff_client(staff).get("/monitor/design/").content.decode()
+    assert "Architecture: what runs in this demo" in page and "<svg" in page
+    for part in ("Django REST API", "PostgreSQL", "React UI", "Research appendix"):
+        assert part in page
+    assert "Architecture:" not in staff_client(staff).get("/monitor/backend/").content.decode()

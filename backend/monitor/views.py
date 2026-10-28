@@ -5,6 +5,7 @@ PRIVGUARD_MONITOR_KEY set), a one-time link from ./run.sh that opens a read-only
 the tabs open without a login on each. Nothing here changes any data.
 """
 import hmac
+import re
 import time
 from functools import wraps
 
@@ -25,7 +26,7 @@ from .middleware import LOG, STARTED
 # queries could read the exact number of matching patients off the row count, so it is never shown.
 HIDDEN_COUNTS = frozenset({"sys_patient_ledger"})
 
-PAGES = {"backend": "Backend", "database": "Database", "login": "Login flow"}
+PAGES = {"backend": "Backend", "database": "Database", "design": "System design", "login": "Login flow"}
 SESSION_FLAG = "monitor_pass"
 
 
@@ -165,3 +166,46 @@ def login_feed(request):
             for p in Principal.objects.prefetch_related("roles").order_by("id")
         ],
     })
+
+
+# ------------------------------------------------------------------ system design: the plan
+PHASE = re.compile(r"^##\s+(Phase\s+\d+)\s*[\u2014-]\s*(.+)$")
+ITEM = re.compile(r"^- \[([ xX-])\]\s+(.*)$")
+
+
+def parse_plan(text: str) -> dict:
+    """Phases and their checkboxes from IMPLEMENTATION_PLAN.md, plus its "Resume point".
+
+    `[x]` done, `[ ]` open, `[-]` dropped on purpose. Only `## Phase N` sections are read, so the
+    bug log and notes do not count as work items."""
+    phases, current, resume, in_resume = [], None, [], False
+    for line in text.splitlines():
+        if line.startswith("## "):
+            in_resume = line.strip().lower() == "## resume point"
+            m = PHASE.match(line.strip())
+            current = {"id": m.group(1), "title": m.group(2).strip(), "items": []} if m else None
+            if current:
+                phases.append(current)
+            continue
+        if in_resume and line.startswith(">"):
+            resume.append(line.lstrip("> ").replace("**", "").strip())
+        m = ITEM.match(line.strip())
+        if current is not None and m:
+            current["items"].append({"state": {"x": "done", "X": "done", "-": "dropped"}.get(m.group(1), "open"),
+                                     "text": m.group(2).replace("**", "").replace("`", "")[:160]})
+    for p in phases:
+        p["done"] = sum(1 for i in p["items"] if i["state"] == "done")
+        p["total"] = sum(1 for i in p["items"] if i["state"] != "dropped")
+    return {"phases": phases, "resume": [r for r in resume if r]}
+
+
+@monitor_only
+def design_feed(request):
+    path = getattr(settings, "PRIVGUARD_PLAN_FILE", "")
+    try:
+        with open(path, encoding="utf-8") as f:
+            plan = parse_plan(f.read())
+        plan["available"] = True
+    except OSError:
+        plan = {"phases": [], "resume": [], "available": False}
+    return JsonResponse(plan)
