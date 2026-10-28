@@ -413,3 +413,79 @@ def test_every_monitor_page_script_is_valid_javascript(staff, name, tmp_path):
     path.write_text(script[0], encoding="utf-8")
     result = subprocess.run([node, "--check", str(path)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr[:400]
+
+
+# --- the backend page: endpoints, apps, database logic, runtime --------------------------------------
+def backend(user):
+    return feed(user, "/monitor/feed/backend/").json()
+
+
+def test_every_api_endpoint_is_listed_with_its_methods_and_who_may_call_it(staff):
+    data = backend(staff)
+    by_route = {e["route"]: e for e in data["endpoints"]}
+    assert len(data["endpoints"]) >= 40
+    assert by_route["/api/dp/query/"]["methods"] == ["POST"] and by_route["/api/dp/query/"]["view"] == "DPQueryView"
+    assert by_route["/api/auth/login/"]["who"] == "anyone (no sign-in)"
+    assert by_route["/api/health/"]["who"] == "anyone (no sign-in)"
+    assert "dba" in by_route["/api/users/"]["who"].lower()
+    assert by_route["/api/users/<pk>/"]["methods"] == ["PATCH"]
+    assert by_route["/api/budget-accounts/<pk>/quota/"]["methods"] == ["POST"]
+    assert "GET" in by_route["/api/patient-budgets/"]["methods"] and "dba" in by_route["/api/patient-budgets/"]["who"].lower()
+    for route in by_route:  # only the application's API: not the Django admin, this monitor, or format duplicates
+        assert route.startswith("/api/") and "format" not in route and "^" not in route and "(?P" not in route
+
+
+def test_live_traffic_is_attributed_to_the_route_that_served_it(staff, plain):
+    api = APIClient()
+    token = _login(api, "ops_plain", PASSWORD).data["access"]
+    api.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+    for _ in range(3):
+        api.get("/api/auth/me/")
+    api.get(f"/api/regions/{987654}/")   # an id: must be counted under the <pk> route, not as its own route
+    api.get("/api/definitely-missing/")
+    data = backend(staff)
+    by_route = {e["route"]: e for e in data["endpoints"]}
+    me, login = by_route["/api/auth/me/"], by_route["/api/auth/login/"]
+    assert me["calls"] == 3 and me["last_status"] == 200 and me["avg_ms"] is not None and me["errors_5xx"] == 0
+    assert login["calls"] == 1
+    assert by_route["/api/regions/<pk>/"]["calls"] == 1 and by_route["/api/regions/<pk>/"]["errors_4xx"] == 1
+    assert data["unrouted"] == 1
+    assert by_route["/api/auth/register/"]["calls"] == 0 and by_route["/api/auth/register/"]["avg_ms"] is None
+
+
+def test_the_apps_and_their_models_and_tables_are_listed(staff):
+    apps = {a["app"]: {m["name"]: m for m in a["models"]} for a in backend(staff)["apps"]}
+    assert apps["budget"]["PatientBudget"]["table"] == "sys_patient_budget"
+    assert apps["budget"]["PatientBudgetView"]["managed"] is False  # a model over a database view
+    assert apps["safehealth"]["Patient"]["table"] == "patients" and apps["accounts"]["Principal"]["table"] == "sys_principal"
+    assert set(apps) == {"accounts", "catalog", "budget", "audit", "safehealth", "api", "monitor"}
+
+
+def test_the_logic_living_in_postgres_is_listed(staff):
+    logic = backend(staff)["db_logic"]
+    routines = {(r["name"], r["kind"]) for r in logic["routines"]}
+    assert ("sp_reserve_budget", "procedure") in routines and ("fn_charge_patients", "function") in routines
+    assert ("privguard_patient_ledger_hash", "trigger function") in routines
+    assert not {"digest", "gen_salt", "crypt"} & {r["name"] for r in logic["routines"]}  # pgcrypto is not ours
+    triggers = {(t["table"], t["name"]): t for t in logic["triggers"]}
+    assert triggers[("sys_patient_ledger", "trg_patient_ledger_hash")]["when"] == "BEFORE"
+    assert ("sys_principal_role", "trg_separation_of_duty") in triggers
+
+
+def test_the_management_commands_are_listed(staff):
+    names = {c["name"] for c in backend(staff)["commands"]}
+    assert {"create_admin", "audit_separation_of_duty", "reap_reservations", "seed_demo"} <= names
+
+
+def test_the_runtime_summary_never_contains_a_secret(staff, settings):
+    from django.conf import settings as live
+    data = backend(staff)
+    assert data["runtime"]["packages"]["Django"] and data["runtime"]["settings"]["password hasher"] == "Argon2PasswordHasher"
+    assert "SecurityMiddleware" in data["runtime"]["middleware"] and "RequestLogMiddleware" in data["runtime"]["middleware"]
+    dump = str(data)
+    for secret in (live.SECRET_KEY, getattr(live, "PRIVGUARD_SERVER_SECRET", None), getattr(live, "PRIVGUARD_MONITOR_KEY", None)):
+        if secret:
+            assert secret not in dump
+    assert set(data["runtime"]["settings"]) == {"debug", "password hasher", "access token (min)", "refresh token (min)",
+                                                 "list page size", "response time floor (ms)", "allowed hosts",
+                                                 "cors origins", "time zone"}  # an allow-list: new settings must be added on purpose

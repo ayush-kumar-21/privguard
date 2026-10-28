@@ -5,16 +5,19 @@ PRIVGUARD_MONITOR_KEY set), a one-time link from ./run.sh that opens a read-only
 the tabs open without a login on each. Nothing here changes any data.
 """
 import hmac
+import importlib.metadata as metadata
 import re
 import time
-from functools import wraps
+from functools import lru_cache, wraps
 
+from django.apps import apps as django_apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.views import redirect_to_login
 from django.db import connection
 from django.http import Http404, HttpResponseRedirect, JsonResponse
 from django.shortcuts import render
+from django.urls import Resolver404, URLResolver, get_resolver, resolve
 from django.utils.http import url_has_allowed_host_and_scheme
 
 from audit.models import SysQuery
@@ -71,6 +74,151 @@ def _pct(sorted_values, q):
     return sorted_values[min(len(sorted_values) - 1, int(q * len(sorted_values)))] if sorted_values else None
 
 
+# ------------------------------------------------------------------ backend: what it is
+LOCAL_APPS = ("accounts", "catalog", "budget", "audit", "safehealth", "api", "monitor")
+
+
+def _clean_route(route: str) -> str:
+    """'api/^regions/(?P<pk>[^/.]+)/$' -> '/api/regions/<pk>/' (DRF routers use regex routes)."""
+    route = re.sub(r"\(\?P<(\w+)>[^)]*\)", r"<\1>", route)
+    return "/" + route.replace("^", "").replace("$", "").replace("\\", "")
+
+
+def _walk(patterns, prefix=""):
+    for p in patterns:
+        route = prefix + str(p.pattern)
+        if isinstance(p, URLResolver):
+            yield from _walk(p.url_patterns, route)
+        else:
+            yield route, p
+
+
+def _first_line(obj, fallback: str) -> str:
+    doc = (getattr(obj, "__doc__", "") or "").strip()
+    return doc.splitlines()[0].strip() if doc else fallback
+
+
+def _who(cls) -> str:
+    """Plain-language answer to 'who may call this endpoint', from the view's permission classes."""
+    if cls is None:
+        return "anyone (no sign-in)"
+    perms = getattr(cls, "permission_classes", None)
+    if perms is None:
+        return "default rules"
+    if len(perms) == 0:
+        return "anyone (no sign-in)"
+    return "; ".join(_first_line(p, p.__name__) for p in perms)
+
+
+@lru_cache(maxsize=1)
+def _endpoints() -> tuple:
+    out = []
+    for route, pattern in _walk(get_resolver().url_patterns):
+        if "format" in route or route.startswith(("admin/", "monitor/")):
+            continue  # Django admin and this monitor are not the application's API
+        cb = pattern.callback
+        cls = getattr(cb, "cls", None) or getattr(cb, "view_class", None)
+        actions = getattr(cb, "actions", None)
+        if actions:
+            methods = sorted(m.upper() for m in actions)
+        elif cls is not None:
+            methods = sorted(m.upper() for m in cls.http_method_names
+                             if m not in ("options", "head", "trace") and hasattr(cls, m))
+        else:
+            methods = ["GET"]
+        view = cls.__name__ if cls is not None else cb.__name__
+        out.append({"route": _clean_route(route), "methods": methods, "view": view,
+                    "who": _who(cls), "what": _first_line(cls, "") if cls is not None else ""})
+    return tuple(out)
+
+
+@lru_cache(maxsize=1)
+def _apps() -> tuple:
+    out = []
+    for label in LOCAL_APPS:
+        config = django_apps.get_app_config(label)
+        models = [{"name": m.__name__, "table": m._meta.db_table, "fields": len(m._meta.concrete_fields),
+                   "managed": m._meta.managed} for m in config.get_models()]
+        out.append({"app": label, "models": models})
+    return tuple(out)
+
+
+@lru_cache(maxsize=1)
+def _commands() -> tuple:
+    from django.core.management import get_commands
+    mine = sorted(name for name, app in get_commands().items() if app in LOCAL_APPS)
+    return tuple({"name": name, "app": get_commands()[name]} for name in mine)
+
+
+def _runtime() -> dict:
+    """Versions and a short allow-list of settings. Never a dump of settings: no secrets, no keys."""
+    jwt = getattr(settings, "SIMPLE_JWT", {})
+    minutes = lambda key: round(jwt[key].total_seconds() / 60) if key in jwt else None
+    packages = {}
+    for name in ("Django", "djangorestframework", "djangorestframework-simplejwt", "psycopg",
+                 "argon2-cffi", "sqlglot", "django-filter", "django-cors-headers"):
+        try:
+            packages[name] = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            pass
+    rest = getattr(settings, "REST_FRAMEWORK", {})
+    return {
+        "packages": packages,
+        "settings": {
+            "debug": settings.DEBUG,
+            "password hasher": settings.PASSWORD_HASHERS[0].rsplit(".", 1)[-1],
+            "access token (min)": minutes("ACCESS_TOKEN_LIFETIME"),
+            "refresh token (min)": minutes("REFRESH_TOKEN_LIFETIME"),
+            "list page size": rest.get("PAGE_SIZE"),
+            "response time floor (ms)": getattr(settings, "PRIVGUARD_MIN_RESPONSE_MS", None),
+            "allowed hosts": ", ".join(settings.ALLOWED_HOSTS),
+            "cors origins": ", ".join(getattr(settings, "CORS_ALLOWED_ORIGINS", [])),
+            "time zone": settings.TIME_ZONE,
+        },
+        "middleware": [m.rsplit(".", 1)[-1] for m in settings.MIDDLEWARE],
+    }
+
+
+def _db_logic() -> dict:
+    """The logic that lives in PostgreSQL: procedures, functions (not extension-owned) and triggers."""
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT p.proname, CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END, "
+            "       pg_get_function_identity_arguments(p.oid), p.prorettype = 'trigger'::regtype "
+            "FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+            "WHERE n.nspname = 'public' AND p.prokind IN ('p', 'f') "
+            "  AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e') "
+            "ORDER BY 2 DESC, 1"
+        )
+        routines = [{"name": n, "kind": ("trigger function" if trig else k), "args": a or ""} for n, k, a, trig in cur.fetchall()]
+        cur.execute(
+            "SELECT c.relname, t.tgname, p.proname, "
+            "       CASE WHEN t.tgtype & 2 = 2 THEN 'BEFORE' WHEN t.tgtype & 64 = 64 THEN 'INSTEAD OF' ELSE 'AFTER' END "
+            "FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "JOIN pg_proc p ON p.oid = t.tgfoid WHERE NOT t.tgisinternal AND n.nspname = 'public' "
+            "ORDER BY c.relname, t.tgname"
+        )
+        triggers = [{"table": t, "name": n, "function": f, "when": w} for t, n, f, w in cur.fetchall()]
+    return {"routines": routines, "triggers": triggers}
+
+
+def _traffic(entries: list) -> dict:
+    """Per-route live numbers from the request log: {route: [calls, total_ms, n4xx, n5xx, last_status]}."""
+    stats = {}
+    for e in entries:
+        try:
+            route = _clean_route(resolve(e["path"]).route)
+        except Resolver404:
+            route = "(no such route)"
+        s = stats.setdefault(route, [0, 0.0, 0, 0, None])
+        s[0] += 1
+        s[1] += e["ms"]
+        s[2] += 1 if 400 <= e["status"] < 500 else 0
+        s[3] += 1 if e["status"] >= 500 else 0
+        s[4] = e["status"]
+    return stats
+
+
 @monitor_only
 def backend_feed(request):
     now, entries = time.time(), list(LOG)
@@ -79,6 +227,12 @@ def backend_feed(request):
         cur.execute("SELECT 1")
     db_ms = round((time.perf_counter() - started) * 1000.0, 2)
     ms = sorted(e["ms"] for e in entries)
+    traffic = _traffic(entries)
+    endpoints = []
+    for ep in _endpoints():
+        calls, total, n4, n5, last = traffic.get(ep["route"], [0, 0.0, 0, 0, None])
+        endpoints.append({**ep, "calls": calls, "avg_ms": round(total / calls, 1) if calls else None,
+                          "errors_4xx": n4, "errors_5xx": n5, "last_status": last})
     return JsonResponse({
         "uptime_s": int(now - STARTED),
         "db_ping_ms": db_ms,
@@ -89,6 +243,12 @@ def backend_feed(request):
         "p50_ms": _pct(ms, 0.5),
         "p95_ms": _pct(ms, 0.95),
         "recent": entries[-60:][::-1],
+        "endpoints": endpoints,
+        "unrouted": traffic.get("(no such route)", [0])[0],
+        "apps": list(_apps()),
+        "commands": list(_commands()),
+        "db_logic": _db_logic(),
+        "runtime": _runtime(),
     })
 
 

@@ -163,18 +163,40 @@ const VIEWS = {
     ];
   },
   backend(d) {
+    const touched = d.endpoints.filter(e => e.calls > 0).length;
+    const tags = (list) => h("td", {}, list.map(m => h("span", {class:"tag"}, m)));
+    const tbl = (heads, rows, empty) => rows.length ? h("div", {class:"scroll"}, h("table", {}, h("thead", {}, h("tr", {}, heads.map(t => h("th", {}, t)))), h("tbody", {}, rows))) : h("div", {class:"empty"}, empty);
+    const endpointRow = (e) => h("tr", {style: e.calls ? "" : "opacity:.72"}, tags(e.methods), td(e.route, "mono"), td(e.view, "mono"),
+      h("td", {style:"white-space:normal;min-width:200px;max-width:300px;line-height:1.35"}, e.who), td(e.calls || "\u2013", "r mono"), td(e.avg_ms == null ? "\u2013" : e.avg_ms, "r mono"),
+      td((e.errors_4xx || e.errors_5xx) ? e.errors_4xx + " / " + e.errors_5xx : "\u2013", "r mono"), td(e.last_status == null ? "\u2013" : e.last_status, "r mono " + (e.last_status ? sc(e.last_status) : "")));
+    const modelRows = d.apps.flatMap(a => a.models.map(m => h("tr", {}, td(a.app, "mono"), td(m.name, "mono"), td(m.table, "mono"), td(m.fields, "r mono"), td(m.managed ? "table" : "database view"))));
+    const dbl = d.db_logic;
     return [
       h("div", {class:"cards"},
         card("Health", d.errors_5xx ? "degraded" : "ok", "database ping " + d.db_ping_ms + " ms"),
         card("Uptime", dur(d.uptime_s), "since this server started"),
         card("Requests / min", d.requests_last_minute, d.requests_total + " in the log"),
-        card("Latency p50 / p95", (d.p50_ms ?? "–") + " / " + (d.p95_ms ?? "–") + " ms", "recent requests"),
-        card("Errors", d.errors_5xx + " server, " + d.errors_4xx + " client", "5xx / 4xx")),
+        card("Latency p50 / p95", (d.p50_ms ?? "\u2013") + " / " + (d.p95_ms ?? "\u2013") + " ms", "recent requests"),
+        card("Errors", d.errors_5xx + " server, " + d.errors_4xx + " client", "5xx / 4xx"),
+        card("API endpoints", d.endpoints.length, touched + " called since start"),
+        card("Database logic", dbl.routines.length + " routines", dbl.triggers.length + " triggers")),
       section("Live requests (newest first)", table(
         [["time"], ["method"], ["path"], ["status", true], ["ms", true], ["user"]],
-        d.recent.map(e => h("tr", {}, td(clock(e.t), "mono"), td(e.method, "mono"), td(e.path, "mono"),
-          td(e.status, "r mono " + sc(e.status)), td(e.ms, "r mono"), td(e.user || "–"))),
+        d.recent.slice(0, 12).map(e => h("tr", {}, td(clock(e.t), "mono"), td(e.method, "mono"), td(e.path, "mono"),
+          td(e.status, "r mono " + sc(e.status)), td(e.ms, "r mono"), td(e.user || "\u2013"))),
         "No API requests yet. Use the app in the other tab and they appear here.")),
+      section("API endpoints: who may call each one, with live traffic" + (d.unrouted ? "  (" + d.unrouted + " request(s) matched no route)" : ""),
+        tbl(["methods", "route", "view", "who may call it", "calls", "avg ms", "4xx / 5xx", "last"], d.endpoints.map(endpointRow), "No endpoints found.")),
+      section("Apps and models (the Django layer over the database)", tbl(["app", "model", "table", "fields", "kind"], modelRows, "none")),
+      section("Logic inside PostgreSQL: stored procedures and functions", tbl(["name", "kind", "arguments"],
+        dbl.routines.map(r => h("tr", {}, td(r.name, "mono"), td(r.kind), td(r.args || "\u2013", "mono"))), "none")),
+      section("Triggers", tbl(["table", "trigger", "fires", "runs function"],
+        dbl.triggers.map(t => h("tr", {}, td(t.table, "mono"), td(t.name, "mono"), td(t.when), td(t.function, "mono"))), "none")),
+      section("Management commands (python manage.py ...)", tbl(["command", "app"], d.commands.map(c => h("tr", {}, td(c.name, "mono"), td(c.app, "mono"))), "none")),
+      section("Runtime and configuration (no secrets are shown)", h("div", {},
+        tbl(["package", "version"], Object.entries(d.runtime.packages).map(([k, v]) => h("tr", {}, td(k, "mono"), td(v, "mono"))), "none"),
+        tbl(["setting", "value"], Object.entries(d.runtime.settings).map(([k, v]) => h("tr", {}, td(k), td(v == null ? "\u2013" : String(v), "mono"))), "none"),
+        h("div", {class:"empty"}, "Middleware, in order: " + d.runtime.middleware.join("  \u2192  ")))),
     ];
   },
   database(d) {
