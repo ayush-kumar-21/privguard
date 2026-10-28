@@ -41,6 +41,22 @@
   .step b { display:block; margin-bottom:2px; } .step span { color:var(--muted); font-size:12.5px; } .step em { display:block; margin-top:8px; font-style:normal; font-size:20px; font-weight:600; }
   .bar { height:6px; background:#202b42; border-radius:4px; overflow:hidden; min-width:90px; } .bar i { display:block; height:100%; background:var(--acc); }
   a.link { color:var(--acc); }
+  #br { display:grid; grid-template-columns:270px 1fr; min-height:480px; }
+  #br-list { border-right:1px solid var(--line); max-height:78vh; overflow-y:auto; }
+  #br-list input { width:calc(100% - 24px); margin:12px; padding:7px 10px; border-radius:6px; border:1px solid var(--line); background:#0e1420; color:var(--text); font:inherit; }
+  #br-list h3 { margin:14px 14px 4px; font-size:11px; letter-spacing:.6px; text-transform:uppercase; color:var(--muted); }
+  #br-list button { display:flex; justify-content:space-between; gap:8px; width:100%; text-align:left; background:none; border:0; color:var(--text); padding:6px 14px; font:inherit; cursor:pointer; }
+  #br-list button:hover { background:#1c2639; } #br-list button.on { background:#202b42; box-shadow: inset 3px 0 0 var(--acc); }
+  #br-list button span { color:var(--muted); font-variant-numeric:tabular-nums; }
+  #br-detail { padding:16px 18px; min-width:0; display:grid; gap:16px; align-content:start; }
+  #br-detail h4 { margin:0 0 6px; font-size:12px; letter-spacing:.6px; text-transform:uppercase; color:var(--muted); }
+  .box { border:1px solid var(--line); border-radius:8px; overflow:hidden; } .box table th, .box table td { padding:6px 12px; }
+  .tag { padding:1px 7px; border-radius:99px; font-size:11px; margin-right:4px; background:#202b42; } .tag.PK { background:#2a4a7a; } .tag.FK { background:#4a3a6a; } .tag.U { background:#2f4a3f; }
+  .nullv { color:var(--muted); font-style:italic; } pre.sql { margin:0; padding:12px 14px; white-space:pre-wrap; font:12.5px/1.5 ui-monospace,Menlo,monospace; color:#cfe0ff; }
+  .note { padding:10px 14px; border-radius:8px; border:1px solid #5a4a1e; background:#2a2412; color:#f5d98b; font-size:13px; }
+  .pager { display:flex; gap:10px; align-items:center; padding:8px 12px; color:var(--muted); font-size:12.5px; border-top:1px solid var(--line); }
+  .pager button { background:#202b42; border:0; color:var(--text); padding:4px 12px; border-radius:6px; cursor:pointer; } .pager button:disabled { opacity:.4; cursor:default; }
+  @media (max-width:820px) { #br { grid-template-columns:1fr; } #br-list { border-right:0; border-bottom:1px solid var(--line); max-height:240px; } }
 </style>
 </head>
 <body data-page="{{ name }}">
@@ -51,7 +67,62 @@
   </nav>
   <div class="live"><span class="dot" id="dot"></span><span id="stamp">connecting</span></div>
 </header>
+{% if name == "design" %}
+<main>
+<section>
+<h2>Architecture: what runs in this demo</h2>
+<div style="padding:16px; overflow-x:auto">
+<svg viewBox="0 0 980 430" role="img" aria-label="PrivGuard architecture" style="width:100%; min-width:760px; height:auto; font:13px -apple-system,'Segoe UI',sans-serif">
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6ea8fe"/></marker></defs>
+  <g fill="#161e2e" stroke="#243049">
+    <rect x="10" y="150" width="150" height="90" rx="10"/>
+    <rect x="200" y="150" width="150" height="90" rx="10"/>
+    <rect x="390" y="20" width="330" height="330" rx="12" fill="#121a29"/>
+    <rect x="760" y="20" width="210" height="330" rx="12" fill="#121a29"/>
+  </g>
+  <g fill="#e6ebf5" text-anchor="middle">
+    <text x="85" y="185" font-weight="600">Browser</text><text x="85" y="206" fill="#8a97b1">analyst, auditor,</text><text x="85" y="224" fill="#8a97b1">admin</text>
+    <text x="275" y="185" font-weight="600">React UI</text><text x="275" y="206" fill="#8a97b1">nginx :8080</text><text x="275" y="224" fill="#8a97b1">roles gate each page</text>
+    <text x="555" y="46" font-weight="600" font-size="14">Django REST API :8000</text>
+    <text x="865" y="46" font-weight="600" font-size="14">PostgreSQL :55000</text>
+  </g>
+  <g fill="#161e2e" stroke="#243049">
+    <rect x="410" y="62" width="290" height="52" rx="8"/><rect x="410" y="124" width="290" height="62" rx="8"/>
+    <rect x="410" y="196" width="290" height="70" rx="8"/><rect x="410" y="276" width="290" height="60" rx="8"/>
+    <rect x="780" y="62" width="170" height="86" rx="8"/><rect x="780" y="158" width="170" height="86" rx="8"/>
+    <rect x="780" y="254" width="170" height="82" rx="8"/>
+  </g>
+  <g fill="#e6ebf5">
+    <text x="425" y="84" font-weight="600">Auth + roles</text><text x="425" y="102" fill="#8a97b1">JWT, Argon2, 15 roles, user admin</text>
+    <text x="425" y="146" font-weight="600">DP query service</text><text x="425" y="164" fill="#8a97b1">parse SQL, bound contributions,</text><text x="425" y="180" fill="#8a97b1">add exact integer noise, cache answers</text>
+    <text x="425" y="218" font-weight="600">Budgets</text><text x="425" y="236" fill="#8a97b1">analyst rho, run quota, per-patient</text><text x="425" y="252" fill="#8a97b1">allowance, separation of duty</text>
+    <text x="425" y="298" font-weight="600">Monitor (this page)</text><text x="425" y="316" fill="#8a97b1">live requests, tables, sign-ins</text>
+    <text x="795" y="84" font-weight="600">Data</text><text x="795" y="104" fill="#8a97b1">SafeHealth: patients,</text><text x="795" y="120" fill="#8a97b1">visits, diagnoses, labs</text>
+    <text x="795" y="180" font-weight="600">Ledgers + audit</text><text x="795" y="200" fill="#8a97b1">analyst and patient ledgers,</text><text x="795" y="216" fill="#8a97b1">hash-chained, append-only</text>
+    <text x="795" y="276" font-weight="600">In the database</text><text x="795" y="296" fill="#8a97b1">triggers, stored procedures,</text><text x="795" y="312" fill="#8a97b1">views, row-level security</text>
+  </g>
+  <g stroke="#6ea8fe" stroke-width="2" fill="none" marker-end="url(#ar)">
+    <line x1="160" y1="195" x2="198" y2="195"/><line x1="350" y1="195" x2="388" y2="195"/>
+    <line x1="720" y1="105" x2="758" y2="105"/><line x1="720" y1="215" x2="758" y2="215"/>
+  </g>
+  <rect x="10" y="372" width="960" height="48" rx="8" fill="none" stroke="#243049" stroke-dasharray="5 4"/>
+  <text x="24" y="393" fill="#e6ebf5" font-weight="600">Research appendix, not in the demo path</text>
+  <text x="24" y="411" fill="#8a97b1">A from-scratch Rust engine (pages, B+ tree, executor, DP operators) with a FastAPI gateway, checked against a Python oracle on 1000 queries.</text>
+</svg>
+<p style="margin:12px 0 0; color:var(--muted); font-size:12.5px">Every query runs: role check, then analyst run quota, then analyst budget, then each contributing patient's own budget, then the noisy answer. A failure at any point gives the charges back.</p>
+</div>
+</section>
+</main>
+{% endif %}
 <main id="root"></main>
+{% if name == "database" %}
+<main>
+<section>
+<h2>Tables, schema and values</h2>
+<div id="br"><div id="br-list"></div><div id="br-detail"><div class="empty">Loading the schema...</div></div></div>
+</section>
+</main>
+{% endif %}
 <script>
 "use strict";
 const PAGE = document.body.dataset.page;
@@ -77,19 +148,69 @@ const sc = (n) => "s" + String(n)[0];
 const dur = (s) => s < 120 ? s + " s" : s < 7200 ? Math.round(s/60) + " min" : (s/3600).toFixed(1) + " h";
 
 const VIEWS = {
+  design(d) {
+    if (!d.available) return [section("Implementation plan", h("div", {class:"empty"}, "The plan file is not mounted into the API container."))];
+    const total = d.phases.reduce((n, p) => n + p.total, 0), done = d.phases.reduce((n, p) => n + p.done, 0);
+    const mark = {done: "\u2713", open: "\u25cb", dropped: "\u2013"};
+    const color = {done: "var(--ok)", open: "var(--warn)", dropped: "var(--muted)"};
+    return [
+      h("div", {class:"cards"},
+        card("Plan progress", total ? Math.round(100 * done / total) + "%" : "–", done + " of " + total + " tasks done"),
+        card("Phases", d.phases.length, d.phases.filter(p => p.done === p.total && p.total).length + " complete")),
+      d.resume.length ? section("Resume point (from IMPLEMENTATION_PLAN.md)", h("div", {class:"empty"}, d.resume.map(r => h("div", {}, r)))) : "",
+      ...d.phases.map(p => section(p.id + ": " + p.title + "  (" + p.done + "/" + p.total + ")",
+        h("div", {class:"scroll"}, h("table", {}, h("tbody", {}, p.items.map(i => h("tr", {}, h("td", {style:"width:28px;color:" + color[i.state]}, mark[i.state]), h("td", {style:"white-space:normal"}, i.text)))))))),
+    ];
+  },
   backend(d) {
+    const live = [
+      h("div", {class:"cards"},
+        card("Health", d.errors_5xx ? "degraded" : "ok", "database ping " + d.db_ping_ms + " ms"),
+        card("Uptime", dur(d.uptime_s), "since this server started"),
+        card("Requests / min", d.requests_last_minute, d.requests_total + " in the log"),
+        card("Latency p50 / p95", (d.p50_ms ?? "\u2013") + " / " + (d.p95_ms ?? "\u2013") + " ms", "recent requests"),
+        card("Errors", d.errors_5xx + " server, " + d.errors_4xx + " client", "5xx / 4xx")),
+      section("Live requests (newest first)", table(
+        [["time"], ["method"], ["path"], ["status", true], ["ms", true], ["user"]],
+        d.recent.slice(0, 12).map(e => h("tr", {}, td(clock(e.t), "mono"), td(e.method, "mono"), td(e.path, "mono"),
+          td(e.status, "r mono " + sc(e.status)), td(e.ms, "r mono"), td(e.user || "\u2013"))),
+        "No API requests yet. Use the app in the other tab and they appear here.")),
+    ];
+    if (!d.details_allowed) return [...live, h("div", {class:"note"}, "The endpoint map, models, database logic and configuration are hidden for this sign-in: they describe the attack surface, so only a superuser (or the demo-mode session) may see them.")];
+    const touched = d.endpoints.filter(e => e.calls > 0).length;
+    const tags = (list) => h("td", {}, list.map(m => h("span", {class:"tag"}, m)));
+    const tbl = (heads, rows, empty) => rows.length ? h("div", {class:"scroll"}, h("table", {}, h("thead", {}, h("tr", {}, heads.map(t => h("th", {}, t)))), h("tbody", {}, rows))) : h("div", {class:"empty"}, empty);
+    const endpointRow = (e) => h("tr", {style: e.calls ? "" : "opacity:.72"}, tags(e.methods), td(e.route, "mono"), td(e.view, "mono"),
+      h("td", {style:"white-space:normal;min-width:200px;max-width:300px;line-height:1.35"}, e.who), td(e.calls || "\u2013", "r mono"), td(e.avg_ms == null ? "\u2013" : e.avg_ms, "r mono"),
+      td((e.errors_4xx || e.errors_5xx) ? e.errors_4xx + " / " + e.errors_5xx : "\u2013", "r mono"), td(e.last_status == null ? "\u2013" : e.last_status, "r mono " + (e.last_status ? sc(e.last_status) : "")));
+    const modelRows = d.apps.flatMap(a => a.models.map(m => h("tr", {}, td(a.app, "mono"), td(m.name, "mono"), td(m.table, "mono"), td(m.fields, "r mono"), td(m.managed ? "table" : "database view"))));
+    const dbl = d.db_logic;
     return [
       h("div", {class:"cards"},
         card("Health", d.errors_5xx ? "degraded" : "ok", "database ping " + d.db_ping_ms + " ms"),
         card("Uptime", dur(d.uptime_s), "since this server started"),
         card("Requests / min", d.requests_last_minute, d.requests_total + " in the log"),
-        card("Latency p50 / p95", (d.p50_ms ?? "–") + " / " + (d.p95_ms ?? "–") + " ms", "recent requests"),
-        card("Errors", d.errors_5xx + " server, " + d.errors_4xx + " client", "5xx / 4xx")),
+        card("Latency p50 / p95", (d.p50_ms ?? "\u2013") + " / " + (d.p95_ms ?? "\u2013") + " ms", "recent requests"),
+        card("Errors", d.errors_5xx + " server, " + d.errors_4xx + " client", "5xx / 4xx"),
+        card("API endpoints", d.endpoints.length, touched + " called since start"),
+        card("Database logic", dbl.routines.length + " routines", dbl.triggers.length + " triggers")),
       section("Live requests (newest first)", table(
         [["time"], ["method"], ["path"], ["status", true], ["ms", true], ["user"]],
-        d.recent.map(e => h("tr", {}, td(clock(e.t), "mono"), td(e.method, "mono"), td(e.path, "mono"),
-          td(e.status, "r mono " + sc(e.status)), td(e.ms, "r mono"), td(e.user || "–"))),
+        d.recent.slice(0, 12).map(e => h("tr", {}, td(clock(e.t), "mono"), td(e.method, "mono"), td(e.path, "mono"),
+          td(e.status, "r mono " + sc(e.status)), td(e.ms, "r mono"), td(e.user || "\u2013"))),
         "No API requests yet. Use the app in the other tab and they appear here.")),
+      section("API endpoints: who may call each one, with live traffic" + (d.unrouted ? "  (" + d.unrouted + " request(s) matched no route)" : ""),
+        tbl(["methods", "route", "view", "who may call it", "calls", "avg ms", "4xx / 5xx", "last"], d.endpoints.map(endpointRow), "No endpoints found.")),
+      section("Apps and models (the Django layer over the database)", tbl(["app", "model", "table", "fields", "kind"], modelRows, "none")),
+      section("Logic inside PostgreSQL: stored procedures and functions", tbl(["name", "kind", "arguments"],
+        dbl.routines.map(r => h("tr", {}, td(r.name, "mono"), td(r.kind), td(r.args || "\u2013", "mono"))), "none")),
+      section("Triggers", tbl(["table", "trigger", "fires", "runs function"],
+        dbl.triggers.map(t => h("tr", {}, td(t.table, "mono"), td(t.name, "mono"), td(t.when), td(t.function, "mono"))), "none")),
+      section("Management commands (python manage.py ...)", tbl(["command", "app"], d.commands.map(c => h("tr", {}, td(c.name, "mono"), td(c.app, "mono"))), "none")),
+      section("Runtime and configuration (no secrets are shown)", h("div", {},
+        tbl(["package", "version"], Object.entries(d.runtime.packages).map(([k, v]) => h("tr", {}, td(k, "mono"), td(v, "mono"))), "none"),
+        tbl(["setting", "value"], Object.entries(d.runtime.settings).map(([k, v]) => h("tr", {}, td(k), td(v == null ? "\u2013" : String(v), "mono"))), "none"),
+        h("div", {class:"empty"}, "Middleware, in order: " + d.runtime.middleware.join("  \u2192  ")))),
     ];
   },
   database(d) {
@@ -109,8 +230,6 @@ const VIEWS = {
         d.queries.map(q => h("tr", {}, td(q.id, "r mono"), td(q.user, "mono"), td(q.status), td(q.rho, "r mono"), td(q.sql, "mono"))), "No queries yet.")),
       section("Budget ledger (hash-chained, append-only), latest entries", table([["#", true], ["user"], ["op"], ["rho change", true], ["rho after", true]],
         d.ledger.map(e => h("tr", {}, td(e.id, "r mono"), td(e.user, "mono"), td(e.op), td(e.rho_delta.toFixed(4), "r mono"), td(e.rho_after.toFixed(4), "r mono"))), "No ledger entries yet.")),
-      section("Data tables", table([["table"], ["rows", true]], rows(data), "none")),
-      section("System tables (catalog, privacy policy, ledger, audit)", table([["table"], ["rows", true]], rows(sys), "none")),
     ];
   },
   login(d) {
@@ -146,6 +265,81 @@ async function tick() {
     document.getElementById("stamp").textContent = "disconnected, retrying";
   }
 }
+
+// ---- database browser: tables, views, columns, keys, indexes, triggers and rows ----------------
+function initBrowser() {
+  const list = document.getElementById("br-list"), detail = document.getElementById("br-detail");
+  let relations = [], current = null, offset = 0, filter = "";
+  const PAGE_ROWS = 25;
+
+  function cellNode(v) {
+    if (v === null || v === undefined) return h("span", {class:"nullv"}, "NULL");
+    if (typeof v === "boolean") return String(v);
+    const text = typeof v === "object" ? JSON.stringify(v) : String(v);
+    return text.length > 90 ? h("span", {title:text}, text.slice(0, 90) + "...") : text;
+  }
+  function drawList() {
+    const groups = {};
+    relations.filter(r => r.name.includes(filter)).forEach(r => (groups[r.group] ||= []).push(r));
+    const order = ["Clinical data (SafeHealth)", "Governance and budgets (sys_*)", "Views", "Framework (auth, sessions, tokens)"];
+    const box = h("input", {type:"search", placeholder:"filter " + relations.length + " tables and views", "aria-label":"filter tables"});
+    box.value = filter; box.addEventListener("input", e => { filter = e.target.value.trim().toLowerCase(); drawList(); document.querySelector("#br-list input").focus(); });
+    list.replaceChildren(box, ...order.filter(g => groups[g]).flatMap(g => [h("h3", {}, g),
+      ...groups[g].map(r => { const b = h("button", {class: r.name === current ? "on" : "", type:"button"}, h("b", {style:"font-weight:500"}, r.name), h("span", {}, r.rows == null ? "" : r.rows.toLocaleString()));
+        b.addEventListener("click", () => open(r.name, 0)); return b; })]));
+  }
+  async function open(name, off) {
+    current = name; offset = off; drawList();
+    const r = await fetch("/monitor/feed/table/" + encodeURIComponent(name) + "/?limit=" + PAGE_ROWS + "&offset=" + off, {credentials:"same-origin"});
+    if (!r.ok) { detail.replaceChildren(h("div", {class:"empty"}, "Could not load " + name + " (" + r.status + ").")); return; }
+    drawDetail(await r.json());
+  }
+  function drawDetail(d) {
+    const parts = [h("div", {}, h("h3", {style:"margin:0;font-size:18px"}, d.name + "  ", h("span", {class:"pill"}, d.kind)),
+      h("div", {style:"color:var(--muted);font-size:12.5px;margin-top:2px"}, d.group + " \u00b7 " + d.columns.length + " columns" + (d.total != null ? " \u00b7 " + d.total.toLocaleString() + " rows" : "")))];
+    if (!d.values_allowed) parts.push(h("div", {class:"note"}, "Row values are hidden for this sign-in. They show patient-level data and which patients each query touched, so only a superuser (or the demo-mode session) may see them."));
+    if (d.definition) parts.push(h("div", {}, h("h4", {}, "View definition (SQL)"), h("div", {class:"box"}, h("pre", {class:"sql"}, d.definition))));
+    const panel = (title, ...body) => h("div", {}, h("h4", {}, title), h("div", {class:"box scroll"}, ...body));
+    const head = (names) => h("thead", {}, h("tr", {}, names.map(t => h("th", {}, t))));
+    const keyCell = (keys) => h("td", {}, keys.map(k => h("span", {class:"tag " + k}, k)));
+    const KIND = {p:"PRIMARY KEY", f:"FOREIGN KEY", u:"UNIQUE", c:"CHECK", x:"EXCLUDE"};
+
+    const columnRows = d.columns.map((c, i) => h("tr", {},
+      td(i + 1, "mono"), td(c.name, "mono"), td(c.type, "mono"), keyCell(c.keys),
+      td(c.nullable ? "yes" : "NOT NULL"), td(c.default || "\u2013", "mono")));
+    parts.push(panel("Columns", h("table", {}, head(["#", "column", "type", "key", "null", "default"]), h("tbody", {}, columnRows))));
+
+    if (d.constraints.length) {
+      const rows = d.constraints.map(c => h("tr", {}, td(KIND[c.type] || c.type), td(c.name, "mono"), td(c.definition, "mono")));
+      parts.push(panel("Constraints", h("table", {}, h("tbody", {}, rows))));
+    }
+    if (d.indexes.length) {
+      const rows = d.indexes.map(i => h("tr", {}, td(i.name, "mono"), td(i.definition, "mono")));
+      parts.push(panel("Indexes", h("table", {}, h("tbody", {}, rows))));
+    }
+    if (d.triggers.length) {
+      const rows = d.triggers.map(t => h("tr", {}, td(t, "mono")));
+      parts.push(panel("Triggers", h("table", {}, h("tbody", {}, rows))));
+    }
+    if (d.rows) {
+      const pager = h("div", {class:"pager"});
+      const prev = h("button", {type:"button"}, "Previous"), next = h("button", {type:"button"}, "Next");
+      prev.disabled = d.offset === 0; next.disabled = d.offset + d.limit >= d.total;
+      prev.addEventListener("click", () => open(d.name, Math.max(0, d.offset - d.limit)));
+      next.addEventListener("click", () => open(d.name, d.offset + d.limit));
+      pager.append(prev, next, d.total ? "rows " + (d.offset + 1) + " to " + Math.min(d.offset + d.limit, d.total) + " of " + d.total.toLocaleString() : "no rows");
+      parts.push(h("div", {}, h("h4", {}, "Rows (like SELECT * ... ORDER BY primary key)"), h("div", {class:"box"},
+        d.rows.length ? h("div", {class:"scroll"}, h("table", {}, h("thead", {}, h("tr", {}, d.columns.map(c => h("th", {}, c.name)))),
+          h("tbody", {}, d.rows.map(row => h("tr", {}, row.map(v => h("td", {class:"mono"}, cellNode(v)))))))) : h("div", {class:"empty"}, "This table is empty."), pager)));
+    }
+    detail.replaceChildren(...parts);
+  }
+  fetch("/monitor/feed/schema/", {credentials:"same-origin"}).then(r => r.json()).then(d => {
+    relations = d.relations; drawList(); open(relations.some(r => r.name === "patients") ? "patients" : relations[0].name, 0);
+  }).catch(() => detail.replaceChildren(h("div", {class:"empty"}, "Could not load the schema.")));
+}
+if (PAGE === "database") initBrowser();
+
 tick(); setInterval(tick, 2000);
 </script>
 </body>

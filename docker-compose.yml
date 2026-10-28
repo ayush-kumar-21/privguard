@@ -18,6 +18,8 @@ services:
 
   api:
     build: ./backend
+    volumes:
+      - ./IMPLEMENTATION_PLAN.md:/app/IMPLEMENTATION_PLAN.md:ro
     environment:
       DEBUG: ${DEBUG:-False}
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env (copy .env.example)}
@@ -40,7 +42,7 @@ services:
              { python manage.py seed_demo || echo 'seed_demo failed (continuing)'; } &&
              { python manage.py seed_activity || echo 'seed_activity failed (continuing)'; } &&
              { python manage.py refresh_catalog_stats || echo 'refresh_catalog_stats failed (continuing)'; } &&
-             python manage.py runserver 0.0.0.0:8000"
+             gunicorn privguard.wsgi:application --bind 0.0.0.0:8000 --workers 1 --threads 8 --timeout 60"
 
   ui:
     build: ./frontend
