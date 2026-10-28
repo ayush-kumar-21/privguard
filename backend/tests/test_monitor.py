@@ -420,8 +420,15 @@ def backend(user):
     return feed(user, "/monitor/feed/backend/").json()
 
 
-def test_every_api_endpoint_is_listed_with_its_methods_and_who_may_call_it(staff):
+def test_plain_staff_get_live_numbers_but_not_the_attack_surface_map(staff):
     data = backend(staff)
+    assert data["details_allowed"] is False and data["requests_total"] >= 0 and "recent" in data
+    for key in ("endpoints", "apps", "db_logic", "commands", "runtime", "unrouted"):
+        assert key not in data, key
+
+
+def test_every_api_endpoint_is_listed_with_its_methods_and_who_may_call_it(root):
+    data = backend(root)
     by_route = {e["route"]: e for e in data["endpoints"]}
     assert len(data["endpoints"]) >= 40
     assert by_route["/api/dp/query/"]["methods"] == ["POST"] and by_route["/api/dp/query/"]["view"] == "DPQueryView"
@@ -435,7 +442,7 @@ def test_every_api_endpoint_is_listed_with_its_methods_and_who_may_call_it(staff
         assert route.startswith("/api/") and "format" not in route and "^" not in route and "(?P" not in route
 
 
-def test_live_traffic_is_attributed_to_the_route_that_served_it(staff, plain):
+def test_live_traffic_is_attributed_to_the_route_that_served_it(root, plain):
     api = APIClient()
     token = _login(api, "ops_plain", PASSWORD).data["access"]
     api.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
@@ -443,26 +450,27 @@ def test_live_traffic_is_attributed_to_the_route_that_served_it(staff, plain):
         api.get("/api/auth/me/")
     api.get(f"/api/regions/{987654}/")   # an id: must be counted under the <pk> route, not as its own route
     api.get("/api/definitely-missing/")
-    data = backend(staff)
+    data = backend(root)
     by_route = {e["route"]: e for e in data["endpoints"]}
     me, login = by_route["/api/auth/me/"], by_route["/api/auth/login/"]
     assert me["calls"] == 3 and me["last_status"] == 200 and me["avg_ms"] is not None and me["errors_5xx"] == 0
     assert login["calls"] == 1
     assert by_route["/api/regions/<pk>/"]["calls"] == 1 and by_route["/api/regions/<pk>/"]["errors_4xx"] == 1
     assert data["unrouted"] == 1
-    assert by_route["/api/auth/register/"]["calls"] == 0 and by_route["/api/auth/register/"]["avg_ms"] is None
+    assert "/api/auth/register/" not in by_route  # open registration is gone
+    assert by_route["/api/auth/logout/"]["calls"] == 0 and by_route["/api/auth/logout/"]["avg_ms"] is None
 
 
-def test_the_apps_and_their_models_and_tables_are_listed(staff):
-    apps = {a["app"]: {m["name"]: m for m in a["models"]} for a in backend(staff)["apps"]}
+def test_the_apps_and_their_models_and_tables_are_listed(root):
+    apps = {a["app"]: {m["name"]: m for m in a["models"]} for a in backend(root)["apps"]}
     assert apps["budget"]["PatientBudget"]["table"] == "sys_patient_budget"
     assert apps["budget"]["PatientBudgetView"]["managed"] is False  # a model over a database view
     assert apps["safehealth"]["Patient"]["table"] == "patients" and apps["accounts"]["Principal"]["table"] == "sys_principal"
     assert set(apps) == {"accounts", "catalog", "budget", "audit", "safehealth", "api", "monitor"}
 
 
-def test_the_logic_living_in_postgres_is_listed(staff):
-    logic = backend(staff)["db_logic"]
+def test_the_logic_living_in_postgres_is_listed(root):
+    logic = backend(root)["db_logic"]
     routines = {(r["name"], r["kind"]) for r in logic["routines"]}
     assert ("sp_reserve_budget", "procedure") in routines and ("fn_charge_patients", "function") in routines
     assert ("privguard_patient_ledger_hash", "trigger function") in routines
@@ -472,14 +480,14 @@ def test_the_logic_living_in_postgres_is_listed(staff):
     assert ("sys_principal_role", "trg_separation_of_duty") in triggers
 
 
-def test_the_management_commands_are_listed(staff):
-    names = {c["name"] for c in backend(staff)["commands"]}
+def test_the_management_commands_are_listed(root):
+    names = {c["name"] for c in backend(root)["commands"]}
     assert {"create_admin", "audit_separation_of_duty", "reap_reservations", "seed_demo"} <= names
 
 
-def test_the_runtime_summary_never_contains_a_secret(staff, settings):
+def test_the_runtime_summary_never_contains_a_secret(root, settings):
     from django.conf import settings as live
-    data = backend(staff)
+    data = backend(root)
     assert data["runtime"]["packages"]["Django"] and data["runtime"]["settings"]["password hasher"] == "Argon2PasswordHasher"
     assert "SecurityMiddleware" in data["runtime"]["middleware"] and "RequestLogMiddleware" in data["runtime"]["middleware"]
     dump = str(data)

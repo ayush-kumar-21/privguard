@@ -218,7 +218,15 @@ Bugs found and not yet fixed. Close one by fixing it with a regression test, the
   SPEC 4.5 and do not. Fixing it changes grouped results and needs a SPEC decision.
 - Utility curves: `docs/eval/utility_vs_rho.md`. Benchmarks: `docs/eval/benchmarks.md`.
 
-## Commands
+## Beta checklist (2026-10-28)
+
+- [x] No open registration: `/api/auth/register/` removed; accounts are created by a dba (`/api/users/`)
+- [x] Production server: the api container runs gunicorn (1 worker, 8 threads, because the monitor's request log is per process) with WhiteNoise for static files, not `runserver`
+- [ ] CI green on `main`: blocked by GitHub billing (jobs do not start); needs the account owner
+- [ ] Fresh-clone run by someone other than the author
+- [ ] Independent review of the privacy design
+- [ ] Backups and secret management beyond a local `.env`
+
 
 | Command | Does |
 |---|---|

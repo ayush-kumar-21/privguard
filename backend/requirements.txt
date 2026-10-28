@@ -19,6 +19,7 @@ scipy>=1.18.1
 
 # --- Prod server ---
 gunicorn>=26.2.0
+whitenoise>=6.7
 
 # --- Dev / test (optional) ---
 pytest-django>=4.14.0

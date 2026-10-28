@@ -78,12 +78,12 @@ class TestAuthentication:
     def test_passwords_are_argon2_hashed(self, plain_user):
         assert plain_user.password.startswith("argon2")
 
-    def test_register_validates_password_length(self, client):
-        resp = client.post(
-            "/api/auth/register/", {"username": "short", "password": "abc"}, format="json"
-        )
-        assert resp.status_code == 400
-        assert "password" in resp.data["error"]["details"]
+    def test_there_is_no_open_registration(self, client):
+        """Accounts are created by a dba (POST /api/users/), never by an anonymous caller."""
+        for method in ("post", "get", "put"):
+            resp = getattr(client, method)("/api/auth/register/", {"username": "intruder", "password": "S3cure-pass-123"}, format="json")
+            assert resp.status_code in (404, 405, 401)
+        assert not Principal.objects.filter(username="intruder").exists()
 
 
 @pytest.mark.django_db

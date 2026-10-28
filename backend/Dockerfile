@@ -18,6 +18,9 @@ RUN pip install --no-cache-dir --retries 5 --timeout 120 -r requirements.txt
 
 COPY . .
 
+# Static files for the Django admin, served by WhiteNoise. Dummy settings: collectstatic touches no database.
+RUN DEBUG=True SECRET_KEY=build PRIVGUARD_SERVER_SECRET=build DATABASE_URL=postgres://u:p@localhost:1/x python manage.py collectstatic --noinput
+
 EXPOSE 8000
 
 # Migrations run at boot; then serve via gunicorn.

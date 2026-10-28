@@ -227,13 +227,7 @@ def backend_feed(request):
         cur.execute("SELECT 1")
     db_ms = round((time.perf_counter() - started) * 1000.0, 2)
     ms = sorted(e["ms"] for e in entries)
-    traffic = _traffic(entries)
-    endpoints = []
-    for ep in _endpoints():
-        calls, total, n4, n5, last = traffic.get(ep["route"], [0, 0.0, 0, 0, None])
-        endpoints.append({**ep, "calls": calls, "avg_ms": round(total / calls, 1) if calls else None,
-                          "errors_4xx": n4, "errors_5xx": n5, "last_status": last})
-    return JsonResponse({
+    payload = {
         "uptime_s": int(now - STARTED),
         "db_ping_ms": db_ms,
         "requests_total": len(entries),
@@ -243,6 +237,20 @@ def backend_feed(request):
         "p50_ms": _pct(ms, 0.5),
         "p95_ms": _pct(ms, 0.95),
         "recent": entries[-60:][::-1],
+        "details_allowed": _values_allowed(request),
+    }
+    if not payload["details_allowed"]:
+        # The route and permission map, the model-to-table map, the database routines, package
+        # versions and settings describe the attack surface, so they follow the same rule as raw
+        # rows: a superuser (who cannot run queries) or the DEBUG-mode demo session only.
+        return JsonResponse(payload)
+    traffic = _traffic(entries)
+    endpoints = []
+    for ep in _endpoints():
+        calls, total, n4, n5, last = traffic.get(ep["route"], [0, 0.0, 0, 0, None])
+        endpoints.append({**ep, "calls": calls, "avg_ms": round(total / calls, 1) if calls else None,
+                          "errors_4xx": n4, "errors_5xx": n5, "last_status": last})
+    payload.update({
         "endpoints": endpoints,
         "unrouted": traffic.get("(no such route)", [0])[0],
         "apps": list(_apps()),
@@ -250,6 +258,7 @@ def backend_feed(request):
         "db_logic": _db_logic(),
         "runtime": _runtime(),
     })
+    return JsonResponse(payload)
 
 
 def _quote(name):

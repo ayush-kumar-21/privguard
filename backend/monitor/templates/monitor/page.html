@@ -163,6 +163,20 @@ const VIEWS = {
     ];
   },
   backend(d) {
+    const live = [
+      h("div", {class:"cards"},
+        card("Health", d.errors_5xx ? "degraded" : "ok", "database ping " + d.db_ping_ms + " ms"),
+        card("Uptime", dur(d.uptime_s), "since this server started"),
+        card("Requests / min", d.requests_last_minute, d.requests_total + " in the log"),
+        card("Latency p50 / p95", (d.p50_ms ?? "\u2013") + " / " + (d.p95_ms ?? "\u2013") + " ms", "recent requests"),
+        card("Errors", d.errors_5xx + " server, " + d.errors_4xx + " client", "5xx / 4xx")),
+      section("Live requests (newest first)", table(
+        [["time"], ["method"], ["path"], ["status", true], ["ms", true], ["user"]],
+        d.recent.slice(0, 12).map(e => h("tr", {}, td(clock(e.t), "mono"), td(e.method, "mono"), td(e.path, "mono"),
+          td(e.status, "r mono " + sc(e.status)), td(e.ms, "r mono"), td(e.user || "\u2013"))),
+        "No API requests yet. Use the app in the other tab and they appear here.")),
+    ];
+    if (!d.details_allowed) return [...live, h("div", {class:"note"}, "The endpoint map, models, database logic and configuration are hidden for this sign-in: they describe the attack surface, so only a superuser (or the demo-mode session) may see them.")];
     const touched = d.endpoints.filter(e => e.calls > 0).length;
     const tags = (list) => h("td", {}, list.map(m => h("span", {class:"tag"}, m)));
     const tbl = (heads, rows, empty) => rows.length ? h("div", {class:"scroll"}, h("table", {}, h("thead", {}, h("tr", {}, heads.map(t => h("th", {}, t)))), h("tbody", {}, rows))) : h("div", {class:"empty"}, empty);
