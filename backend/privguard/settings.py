@@ -19,6 +19,7 @@ env = environ.Env(
     SECRET_KEY=(str, "dev-insecure-change-me"),
     ALLOWED_HOSTS=(list, ["localhost", "127.0.0.1"]),
     CORS_ALLOWED_ORIGINS=(list, ["http://localhost:5173", "http://localhost:8080"]),
+    CSRF_TRUSTED_ORIGINS=(list, []),
 )
 # Load backend/.env if present (never commit real secrets — see .gitignore).
 environ.Env.read_env(BASE_DIR / ".env")
@@ -26,6 +27,14 @@ environ.Env.read_env(BASE_DIR / ".env")
 SECRET_KEY = env("SECRET_KEY")
 DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
+# Behind a TLS-terminating proxy (Railway, Render, nginx on a platform) the request arrives as
+# plain http; trust the proxy's X-Forwarded-Proto so Django knows the browser used https.
+CSRF_TRUSTED_ORIGINS = env("CSRF_TRUSTED_ORIGINS")
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
 
 INSTALLED_APPS = [
     "django.contrib.admin",
