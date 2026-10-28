@@ -41,6 +41,22 @@
   .step b { display:block; margin-bottom:2px; } .step span { color:var(--muted); font-size:12.5px; } .step em { display:block; margin-top:8px; font-style:normal; font-size:20px; font-weight:600; }
   .bar { height:6px; background:#202b42; border-radius:4px; overflow:hidden; min-width:90px; } .bar i { display:block; height:100%; background:var(--acc); }
   a.link { color:var(--acc); }
+  #br { display:grid; grid-template-columns:270px 1fr; min-height:480px; }
+  #br-list { border-right:1px solid var(--line); max-height:78vh; overflow-y:auto; }
+  #br-list input { width:calc(100% - 24px); margin:12px; padding:7px 10px; border-radius:6px; border:1px solid var(--line); background:#0e1420; color:var(--text); font:inherit; }
+  #br-list h3 { margin:14px 14px 4px; font-size:11px; letter-spacing:.6px; text-transform:uppercase; color:var(--muted); }
+  #br-list button { display:flex; justify-content:space-between; gap:8px; width:100%; text-align:left; background:none; border:0; color:var(--text); padding:6px 14px; font:inherit; cursor:pointer; }
+  #br-list button:hover { background:#1c2639; } #br-list button.on { background:#202b42; box-shadow: inset 3px 0 0 var(--acc); }
+  #br-list button span { color:var(--muted); font-variant-numeric:tabular-nums; }
+  #br-detail { padding:16px 18px; min-width:0; display:grid; gap:16px; align-content:start; }
+  #br-detail h4 { margin:0 0 6px; font-size:12px; letter-spacing:.6px; text-transform:uppercase; color:var(--muted); }
+  .box { border:1px solid var(--line); border-radius:8px; overflow:hidden; } .box table th, .box table td { padding:6px 12px; }
+  .tag { padding:1px 7px; border-radius:99px; font-size:11px; margin-right:4px; background:#202b42; } .tag.PK { background:#2a4a7a; } .tag.FK { background:#4a3a6a; } .tag.U { background:#2f4a3f; }
+  .nullv { color:var(--muted); font-style:italic; } pre.sql { margin:0; padding:12px 14px; white-space:pre-wrap; font:12.5px/1.5 ui-monospace,Menlo,monospace; color:#cfe0ff; }
+  .note { padding:10px 14px; border-radius:8px; border:1px solid #5a4a1e; background:#2a2412; color:#f5d98b; font-size:13px; }
+  .pager { display:flex; gap:10px; align-items:center; padding:8px 12px; color:var(--muted); font-size:12.5px; border-top:1px solid var(--line); }
+  .pager button { background:#202b42; border:0; color:var(--text); padding:4px 12px; border-radius:6px; cursor:pointer; } .pager button:disabled { opacity:.4; cursor:default; }
+  @media (max-width:820px) { #br { grid-template-columns:1fr; } #br-list { border-right:0; border-bottom:1px solid var(--line); max-height:240px; } }
 </style>
 </head>
 <body data-page="{{ name }}">
@@ -99,6 +115,14 @@
 </main>
 {% endif %}
 <main id="root"></main>
+{% if name == "database" %}
+<main>
+<section>
+<h2>Tables, schema and values</h2>
+<div id="br"><div id="br-list"></div><div id="br-detail"><div class="empty">Loading the schema...</div></div></div>
+</section>
+</main>
+{% endif %}
 <script>
 "use strict";
 const PAGE = document.body.dataset.page;
@@ -170,8 +194,6 @@ const VIEWS = {
         d.queries.map(q => h("tr", {}, td(q.id, "r mono"), td(q.user, "mono"), td(q.status), td(q.rho, "r mono"), td(q.sql, "mono"))), "No queries yet.")),
       section("Budget ledger (hash-chained, append-only), latest entries", table([["#", true], ["user"], ["op"], ["rho change", true], ["rho after", true]],
         d.ledger.map(e => h("tr", {}, td(e.id, "r mono"), td(e.user, "mono"), td(e.op), td(e.rho_delta.toFixed(4), "r mono"), td(e.rho_after.toFixed(4), "r mono"))), "No ledger entries yet.")),
-      section("Data tables", table([["table"], ["rows", true]], rows(data), "none")),
-      section("System tables (catalog, privacy policy, ledger, audit)", table([["table"], ["rows", true]], rows(sys), "none")),
     ];
   },
   login(d) {
@@ -207,6 +229,81 @@ async function tick() {
     document.getElementById("stamp").textContent = "disconnected, retrying";
   }
 }
+
+// ---- database browser: tables, views, columns, keys, indexes, triggers and rows ----------------
+function initBrowser() {
+  const list = document.getElementById("br-list"), detail = document.getElementById("br-detail");
+  let relations = [], current = null, offset = 0, filter = "";
+  const PAGE_ROWS = 25;
+
+  function cellNode(v) {
+    if (v === null || v === undefined) return h("span", {class:"nullv"}, "NULL");
+    if (typeof v === "boolean") return String(v);
+    const text = typeof v === "object" ? JSON.stringify(v) : String(v);
+    return text.length > 90 ? h("span", {title:text}, text.slice(0, 90) + "...") : text;
+  }
+  function drawList() {
+    const groups = {};
+    relations.filter(r => r.name.includes(filter)).forEach(r => (groups[r.group] ||= []).push(r));
+    const order = ["Clinical data (SafeHealth)", "Governance and budgets (sys_*)", "Views", "Framework (auth, sessions, tokens)"];
+    const box = h("input", {type:"search", placeholder:"filter " + relations.length + " tables and views", "aria-label":"filter tables"});
+    box.value = filter; box.addEventListener("input", e => { filter = e.target.value.trim().toLowerCase(); drawList(); document.querySelector("#br-list input").focus(); });
+    list.replaceChildren(box, ...order.filter(g => groups[g]).flatMap(g => [h("h3", {}, g),
+      ...groups[g].map(r => { const b = h("button", {class: r.name === current ? "on" : "", type:"button"}, h("b", {style:"font-weight:500"}, r.name), h("span", {}, r.rows == null ? "" : r.rows.toLocaleString()));
+        b.addEventListener("click", () => open(r.name, 0)); return b; })]));
+  }
+  async function open(name, off) {
+    current = name; offset = off; drawList();
+    const r = await fetch("/monitor/feed/table/" + encodeURIComponent(name) + "/?limit=" + PAGE_ROWS + "&offset=" + off, {credentials:"same-origin"});
+    if (!r.ok) { detail.replaceChildren(h("div", {class:"empty"}, "Could not load " + name + " (" + r.status + ").")); return; }
+    drawDetail(await r.json());
+  }
+  function drawDetail(d) {
+    const parts = [h("div", {}, h("h3", {style:"margin:0;font-size:18px"}, d.name + "  ", h("span", {class:"pill"}, d.kind)),
+      h("div", {style:"color:var(--muted);font-size:12.5px;margin-top:2px"}, d.group + " \u00b7 " + d.columns.length + " columns" + (d.total != null ? " \u00b7 " + d.total.toLocaleString() + " rows" : "")))];
+    if (!d.values_allowed) parts.push(h("div", {class:"note"}, "Row values are hidden for this sign-in. They show patient-level data and which patients each query touched, so only a superuser (or the demo-mode session) may see them."));
+    if (d.definition) parts.push(h("div", {}, h("h4", {}, "View definition (SQL)"), h("div", {class:"box"}, h("pre", {class:"sql"}, d.definition))));
+    const panel = (title, ...body) => h("div", {}, h("h4", {}, title), h("div", {class:"box scroll"}, ...body));
+    const head = (names) => h("thead", {}, h("tr", {}, names.map(t => h("th", {}, t))));
+    const keyCell = (keys) => h("td", {}, keys.map(k => h("span", {class:"tag " + k}, k)));
+    const KIND = {p:"PRIMARY KEY", f:"FOREIGN KEY", u:"UNIQUE", c:"CHECK", x:"EXCLUDE"};
+
+    const columnRows = d.columns.map((c, i) => h("tr", {},
+      td(i + 1, "mono"), td(c.name, "mono"), td(c.type, "mono"), keyCell(c.keys),
+      td(c.nullable ? "yes" : "NOT NULL"), td(c.default || "\u2013", "mono")));
+    parts.push(panel("Columns", h("table", {}, head(["#", "column", "type", "key", "null", "default"]), h("tbody", {}, columnRows))));
+
+    if (d.constraints.length) {
+      const rows = d.constraints.map(c => h("tr", {}, td(KIND[c.type] || c.type), td(c.name, "mono"), td(c.definition, "mono")));
+      parts.push(panel("Constraints", h("table", {}, h("tbody", {}, rows))));
+    }
+    if (d.indexes.length) {
+      const rows = d.indexes.map(i => h("tr", {}, td(i.name, "mono"), td(i.definition, "mono")));
+      parts.push(panel("Indexes", h("table", {}, h("tbody", {}, rows))));
+    }
+    if (d.triggers.length) {
+      const rows = d.triggers.map(t => h("tr", {}, td(t, "mono")));
+      parts.push(panel("Triggers", h("table", {}, h("tbody", {}, rows))));
+    }
+    if (d.rows) {
+      const pager = h("div", {class:"pager"});
+      const prev = h("button", {type:"button"}, "Previous"), next = h("button", {type:"button"}, "Next");
+      prev.disabled = d.offset === 0; next.disabled = d.offset + d.limit >= d.total;
+      prev.addEventListener("click", () => open(d.name, Math.max(0, d.offset - d.limit)));
+      next.addEventListener("click", () => open(d.name, d.offset + d.limit));
+      pager.append(prev, next, d.total ? "rows " + (d.offset + 1) + " to " + Math.min(d.offset + d.limit, d.total) + " of " + d.total.toLocaleString() : "no rows");
+      parts.push(h("div", {}, h("h4", {}, "Rows (like SELECT * ... ORDER BY primary key)"), h("div", {class:"box"},
+        d.rows.length ? h("div", {class:"scroll"}, h("table", {}, h("thead", {}, h("tr", {}, d.columns.map(c => h("th", {}, c.name)))),
+          h("tbody", {}, d.rows.map(row => h("tr", {}, row.map(v => h("td", {class:"mono"}, cellNode(v)))))))) : h("div", {class:"empty"}, "This table is empty."), pager)));
+    }
+    detail.replaceChildren(...parts);
+  }
+  fetch("/monitor/feed/schema/", {credentials:"same-origin"}).then(r => r.json()).then(d => {
+    relations = d.relations; drawList(); open(relations.some(r => r.name === "patients") ? "patients" : relations[0].name, 0);
+  }).catch(() => detail.replaceChildren(h("div", {class:"empty"}, "Could not load the schema.")));
+}
+if (PAGE === "database") initBrowser();
+
 tick(); setInterval(tick, 2000);
 </script>
 </body>

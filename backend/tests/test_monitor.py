@@ -271,3 +271,145 @@ def test_the_design_page_shows_the_architecture_and_is_staff_only(db, staff):
     for part in ("Django REST API", "PostgreSQL", "React UI", "Research appendix"):
         assert part in page
     assert "Architecture:" not in staff_client(staff).get("/monitor/backend/").content.decode()
+
+
+# --- the database browser: schema, views and values ---------------------------------------------------
+@pytest.fixture
+def root(db):
+    return Principal.objects.create_superuser(username="ops_root", password=PASSWORD)
+
+
+def feed(user, url):
+    return staff_client(user).get(url)
+
+
+def test_the_browser_feeds_need_a_sign_in(db):
+    assert Client().get("/monitor/feed/schema/").status_code == 401
+    assert Client().get("/monitor/feed/table/patients/").status_code == 401
+
+
+def test_the_schema_lists_every_table_and_view_in_groups(root, visits):
+    data = feed(root, "/monitor/feed/schema/").json()
+    by_name = {r["name"]: r for r in data["relations"]}
+    assert data["values_allowed"] is True
+    for table in ("patients", "visits", "sys_budget_ledger", "sys_patient_ledger", "sys_principal", "django_session"):
+        assert by_name[table]["kind"] == "table"
+    for view in ("v_budget_status", "v_patient_budget", "v_query_audit", "v_visit_summary"):
+        assert by_name[view]["kind"] == "view" and by_name[view]["group"] == "Views"
+    assert by_name["patients"]["group"] == "Clinical data (SafeHealth)" and by_name["patients"]["rows"] == 6
+    assert by_name["sys_role"]["group"] == "Governance and budgets (sys_*)"
+    assert by_name["django_session"]["group"].startswith("Framework")
+
+
+def test_a_plain_staff_sign_in_sees_structure_but_no_values(staff, visits):
+    schema = feed(staff, "/monitor/feed/schema/").json()
+    assert schema["values_allowed"] is False
+    assert {r["name"]: r["rows"] for r in schema["relations"]}["sys_patient_ledger"] is None  # the count is data too
+    table = feed(staff, "/monitor/feed/table/patients/").json()
+    assert table["values_allowed"] is False and table["rows"] is None and table["total"] is None
+    assert [c["name"] for c in table["columns"]][:2] == ["patient_id", "mrn"]  # the schema is still shown
+
+
+def test_a_superuser_sees_columns_keys_constraints_indexes_and_rows(root, visits):
+    d = feed(root, "/monitor/feed/table/visits/").json()
+    cols = {c["name"]: c for c in d["columns"]}
+    assert "PK" in cols["visit_id"]["keys"] and "FK" in cols["patient_id"]["keys"]
+    assert cols["total_charge"]["nullable"] in (True, False) and "double" in cols["total_charge"]["type"]
+    assert any(c["type"] == "f" and "patients" in c["definition"] for c in d["constraints"])
+    assert any("patient" in i["definition"] for i in d["indexes"])
+    assert d["total"] == 7 + 5 * 2 and len(d["rows"]) == 17 and len(d["rows"][0]) == len(d["columns"])
+    ids = [row[0] for row in d["rows"]]
+    assert ids == sorted(ids)  # ordered by the primary key
+
+
+def test_triggers_and_view_definitions_are_shown(root, visits):
+    ledger = feed(root, "/monitor/feed/table/sys_patient_ledger/").json()
+    assert {"trg_patient_ledger_hash", "trg_patient_ledger_readonly"} <= set(ledger["triggers"])
+    view = feed(root, "/monitor/feed/table/v_patient_budget/").json()
+    assert view["kind"] == "view" and "sys_patient_budget" in view["definition"]
+    assert view["total"] == 6 and view["rows"]
+
+
+def test_secret_columns_are_never_read(root, visits, account, settings):
+    """Passwords, live tokens, noise seeds and wrapped keys come back as '(hidden)' for every row."""
+    from monitor.views import SECRET_COLUMNS, _relations
+    client = APIClient()
+    client.post("/api/auth/login/", {"username": "ops_root", "password": PASSWORD}, format="json")  # a live token
+    hash_text = Principal.objects.get(username="ops_root").password
+    seen = 0
+    for name in _relations():
+        d = feed(root, f"/monitor/feed/table/{name}/").json()
+        for i, col in enumerate(d["columns"]):
+            if col["name"] in SECRET_COLUMNS and d["rows"]:
+                assert {row[i] for row in d["rows"]} == {"(hidden)"}, (name, col["name"])
+                seen += 1
+        assert hash_text not in str(d), name
+    assert seen >= 3  # sys_principal.password, outstanding-token token/jti at least
+
+
+def test_binary_columns_show_a_short_hex_prefix(root, account, visits, settings):
+    from privacy.service import run_private_query
+    from catalog.models import SysTable
+    settings.PRIVGUARD_MIN_RESPONSE_MS = 0
+    SysTable.objects.create(db=account.db, table_name="visits")
+    run_private_query(account.principal, account.db.db_name, "SELECT COUNT(*) FROM visits", rho_req=0.05)
+    d = feed(root, "/monitor/feed/table/sys_budget_ledger/").json()
+    i = [c["name"] for c in d["columns"]].index("entry_hash")
+    assert d["rows"] and all(r[i].startswith("\\x") and r[i].endswith("...") and len(r[i]) < 30 for r in d["rows"])
+
+
+@pytest.mark.parametrize("bad", ["nonsense", "pg_class", "information_schema.tables", "patients;DROP TABLE patients",
+                                 "patients%20--", "PATIENTS", "..%2fetc", 'patients"', "sys_principal--"])
+def test_only_real_public_tables_and_views_can_be_opened(root, visits, bad):
+    assert feed(root, f"/monitor/feed/table/{bad}/").status_code == 404
+    assert Patient_count() == 6  # nothing was dropped
+
+
+def Patient_count():
+    from safehealth.models import Patient
+    return Patient.objects.count()
+
+
+def test_paging_is_clamped(root, visits):
+    huge = feed(root, "/monitor/feed/table/visits/?limit=100000&offset=-5").json()
+    assert huge["limit"] == 100 and huge["offset"] == 0 and len(huge["rows"]) == 17
+    page = feed(root, "/monitor/feed/table/visits/?limit=5&offset=10").json()
+    assert len(page["rows"]) == 5 and page["offset"] == 10 and page["rows"][0][0] == huge["rows"][10][0]
+    junk = feed(root, "/monitor/feed/table/visits/?limit=abc&offset=xyz").json()
+    assert junk["limit"] == 25 and junk["offset"] == 0
+    assert feed(root, "/monitor/feed/table/visits/?offset=999999").json()["rows"] == []
+
+
+def test_the_demo_session_sees_values_only_while_debug_is_on(db, settings, visits):
+    settings.DEBUG, settings.PRIVGUARD_MONITOR_KEY = True, KEY
+    client = Client()
+    client.get(f"/monitor/enter/?key={KEY}")
+    assert client.get("/monitor/feed/table/patients/").json()["values_allowed"] is True
+    settings.DEBUG = False  # the session flag alone is not enough once demo mode is off
+    assert client.get("/monitor/feed/table/patients/").json()["values_allowed"] is False
+
+
+def test_the_browser_container_is_on_the_database_page_only(staff):
+    client = staff_client(staff)
+    assert 'id="br"' in client.get("/monitor/database/").content.decode()
+    for other in ("backend", "login", "design"):
+        assert 'id="br"' not in client.get(f"/monitor/{other}/").content.decode()
+
+
+@pytest.mark.parametrize("name", PAGES)
+def test_every_monitor_page_script_is_valid_javascript(staff, name, tmp_path):
+    """A stray parenthesis in the page script leaves the page stuck on 'connecting' with no data,
+    and no server-side test notices. Parse the real rendered script with Node when it is installed."""
+    import re
+    import shutil
+    import subprocess
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    html = staff_client(staff).get(f"/monitor/{name}/").content.decode()
+    script = re.findall(r"<script>(.*?)</script>", html, re.S)
+    assert len(script) == 1
+    path = tmp_path / f"{name}.js"
+    path.write_text(script[0], encoding="utf-8")
+    result = subprocess.run([node, "--check", str(path)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr[:400]

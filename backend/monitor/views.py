@@ -209,3 +209,133 @@ def design_feed(request):
     except OSError:
         plan = {"phases": [], "resume": [], "available": False}
     return JsonResponse(plan)
+
+
+# ------------------------------------------------------------------ database browser
+# Columns whose values are never read, whatever the viewer: credentials, live tokens, noise seeds
+# and wrapped encryption keys. They are replaced inside the SQL, so they never reach this process.
+SECRET_COLUMNS = frozenset({
+    "password", "session_data", "session_key", "token", "jti", "noise_seed", "wrapped_dek",
+})
+CLINICAL_TABLES = frozenset({"regions", "hospitals", "departments", "staff", "patients",
+                             "visits", "diagnoses", "lab_results"})
+MAX_PAGE = 100
+
+
+def _values_allowed(request) -> bool:
+    """Raw rows show patient-level data and which patients each query touched, so only a superuser
+    (who cannot run queries: separation of duty) or the demo-mode session may see them."""
+    user = request.user
+    if user.is_authenticated and user.is_active and user.is_superuser:
+        return True
+    return bool(settings.DEBUG and request.session.get(SESSION_FLAG))
+
+
+def _group(name: str, kind: str) -> str:
+    if kind == "view":
+        return "Views"
+    if name in CLINICAL_TABLES:
+        return "Clinical data (SafeHealth)"
+    if name.startswith("sys_"):
+        return "Governance and budgets (sys_*)"
+    return "Framework (auth, sessions, tokens)"
+
+
+def _relations() -> dict:
+    """{name: 'table' | 'view'} for the public schema, straight from the catalog."""
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT c.relname, c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'v') ORDER BY c.relname"
+        )
+        return {name: ("view" if kind == "v" else "table") for name, kind in cur.fetchall()}
+
+
+def _int(value, default, low, high):
+    try:
+        return max(low, min(high, int(value)))
+    except (TypeError, ValueError):
+        return default
+
+
+@monitor_only
+def schema_feed(request):
+    allowed, relations, out = _values_allowed(request), _relations(), []
+    with connection.cursor() as cur:
+        for name, kind in relations.items():
+            rows = None
+            if allowed or name not in HIDDEN_COUNTS:
+                cur.execute(f"SELECT count(*) FROM {_quote(name)}")  # names come from the catalog
+                rows = cur.fetchone()[0]
+            out.append({"name": name, "kind": kind, "group": _group(name, kind), "rows": rows})
+    return JsonResponse({"relations": out, "values_allowed": allowed})
+
+
+@monitor_only
+def table_feed(request, name):
+    relations = _relations()
+    if name not in relations:  # an allow-list from the catalog, not a pattern
+        raise Http404()
+    kind, allowed = relations[name], _values_allowed(request)
+    quoted = _quote(name)
+    offset = _int(request.GET.get("offset"), 0, 0, 10**9)
+    limit = _int(request.GET.get("limit"), 25, 1, MAX_PAGE)
+
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT a.attname, format_type(a.atttypid, a.atttypmod), NOT a.attnotnull, "
+            "       pg_get_expr(d.adbin, d.adrelid), a.atttypid = 'bytea'::regtype "
+            "FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum "
+            "WHERE a.attrelid = %s::regclass AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum",
+            [f"public.{_quote(name)}"],
+        )
+        cols = [{"name": n, "type": t, "nullable": nl, "default": df, "bytea": b} for n, t, nl, df, b in cur.fetchall()]
+
+        cur.execute(
+            "SELECT c.conname, c.contype, pg_get_constraintdef(c.oid), "
+            "       ARRAY(SELECT attname FROM pg_attribute WHERE attrelid = c.conrelid AND attnum = ANY(c.conkey)) "
+            "FROM pg_constraint c WHERE c.conrelid = %s::regclass ORDER BY c.contype, c.conname",
+            [f"public.{_quote(name)}"],
+        )
+        constraints = [{"name": n, "type": t, "definition": d, "columns": list(cs)} for n, t, d, cs in cur.fetchall()]
+        keys = {}
+        for c in constraints:
+            tag = {"p": "PK", "f": "FK", "u": "U"}.get(c["type"])
+            if tag:
+                for col in c["columns"]:
+                    keys.setdefault(col, [])
+                    if tag not in keys[col]:
+                        keys[col].append(tag)
+        for col in cols:
+            col["keys"] = keys.get(col["name"], [])
+
+        cur.execute("SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = 'public' AND tablename = %s ORDER BY indexname", [name])
+        indexes = [{"name": n, "definition": d} for n, d in cur.fetchall()]
+        cur.execute("SELECT tgname FROM pg_trigger WHERE tgrelid = %s::regclass AND NOT tgisinternal ORDER BY tgname", [f"public.{_quote(name)}"])
+        triggers = [r[0] for r in cur.fetchall()]
+        definition = None
+        if kind == "view":
+            cur.execute("SELECT pg_get_viewdef(%s::regclass, true)", [f"public.{_quote(name)}"])
+            definition = cur.fetchone()[0]
+
+        payload = {"name": name, "kind": kind, "group": _group(name, kind), "columns": cols,
+                   "constraints": constraints, "indexes": indexes, "triggers": triggers,
+                   "definition": definition, "values_allowed": allowed, "rows": None,
+                   "total": None, "offset": offset, "limit": limit}
+        if allowed:
+            select = []
+            for col in cols:
+                q = _quote(col["name"])
+                if col["name"] in SECRET_COLUMNS:
+                    select.append(f"'(hidden)'::text AS {q}")
+                elif col["bytea"]:
+                    select.append(f"CASE WHEN {q} IS NULL THEN NULL ELSE '\\x' || encode(substring({q} from 1 for 8), 'hex') || '...' END AS {q}")
+                else:
+                    select.append(q)
+            pk = next((c["columns"] for c in constraints if c["type"] == "p"), None)
+            order = ", ".join(_quote(c) for c in pk) if pk else "1"
+            cur.execute(f"SELECT count(*) FROM {quoted}")
+            payload["total"] = cur.fetchone()[0]
+            cur.execute(f"SELECT {', '.join(select)} FROM {quoted} ORDER BY {order} LIMIT %s OFFSET %s", [limit, offset])
+            payload["rows"] = [[(v[:300] + "..." if isinstance(v, str) and len(v) > 300 else v) for v in row] for row in cur.fetchall()]
+    return JsonResponse(payload)
