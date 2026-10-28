@@ -7,9 +7,12 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 def test_nginx_proxies_api_to_backend_service():
-    nginx_conf = (ROOT / "frontend" / "nginx.conf").read_text(encoding="utf-8")
-    assert "location /api/" in nginx_conf
-    assert "proxy_pass http://api:8000/api/;" in nginx_conf
+    nginx_conf = (ROOT / "frontend" / "nginx.conf.template").read_text(encoding="utf-8")
+    assert "location ~ ^/(api|admin|monitor|static)/" in nginx_conf
+    assert "proxy_pass ${API_UPSTREAM};" in nginx_conf and "listen ${PORT};" in nginx_conf
+    assert "X-Forwarded-Proto" in nginx_conf
+    dockerfile = (ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
+    assert "API_UPSTREAM=http://api:8000" in dockerfile  # the docker-compose default
 
 
 def test_frontend_api_client_uses_relative_api_base():

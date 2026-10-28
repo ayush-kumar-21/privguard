@@ -20,5 +20,8 @@ RUN npm run build
 
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# nginx renders every file in /etc/nginx/templates (*.template) with envsubst at start-up.
+COPY 00-proto.conf.template /etc/nginx/templates/00-proto.conf.template
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+ENV PORT=80 API_UPSTREAM=http://api:8000
 EXPOSE 80

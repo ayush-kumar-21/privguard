@@ -12,10 +12,11 @@ used for --flush because it does not fire the ledger's append-only row trigger.
 """
 from __future__ import annotations
 
+import os
 import random
 from datetime import timedelta
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
 from django.utils import timezone
 
@@ -28,7 +29,24 @@ from safehealth.models import (
     Department, Diagnosis, Hospital, LabResult, Patient, Region, Staff, Visit,
 )
 
+# The demo password is public (it is in the repository), so it is only used with DEBUG on. With DEBUG
+# off the passwords must come from the environment, and the command refuses to run without them:
+#   PRIVGUARD_DEMO_PASSWORD  alice, frank, erin, carol   PRIVGUARD_ADMIN_PASSWORD  dave (the dba)
 DEMO_PASSWORD = "privguard123"
+MIN_PASSWORD_LEN = 12
+
+
+def password_for(username: str, role_name: str) -> str:
+    """The password a seeded account gets: env-provided in production, the public demo one in DEBUG."""
+    from django.conf import settings
+    var = "PRIVGUARD_ADMIN_PASSWORD" if role_name == "dba" else "PRIVGUARD_DEMO_PASSWORD"
+    value = os.environ.get(var, "")
+    if settings.DEBUG:
+        return value or DEMO_PASSWORD
+    if len(value) < MIN_PASSWORD_LEN or value == DEMO_PASSWORD:
+        raise CommandError(f"{var} must be set to at least {MIN_PASSWORD_LEN} characters (and not the "
+                           "public demo password) to seed accounts when DEBUG is off")
+    return value
 ADMISSION_TYPES = ["EMERGENCY", "ELECTIVE", "URGENT"]
 ICD10 = ["I21.9", "E11.9", "J18.9", "N39.0", "C50.9"]
 ICD10_RARE = "Z99.9"          # the "outlier patient" signal for the attack demo
@@ -60,6 +78,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **opts):
         rng = random.Random(opts["seed"])
+
+        # Check every password first. Creating an account and only then failing on its password
+        # would leave it with no usable password, and a re-run never fixes an existing account.
+        for name, (role_name, _) in PRINCIPALS.items():
+            password_for(name, role_name)
 
         if opts["flush"]:
             with connection.cursor() as cur:
@@ -125,8 +148,8 @@ class Command(BaseCommand):
         for name, (role_name, rho) in PRINCIPALS.items():
             p, created = Principal.objects.get_or_create(
                 username=name, defaults=dict(kind="human"))
-            if created:
-                p.set_password(DEMO_PASSWORD)
+            if created or not p.has_usable_password():
+                p.set_password(password_for(name, role_name))
                 if role_name == "dba":
                     p.is_staff = p.is_superuser = True
                 p.save()
@@ -206,5 +229,6 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Seeded SafeHealth demo:"))
         for name, c in counts.items():
             self.stdout.write(f"  {name:<12} {c}")
-        self.stdout.write(self.style.SUCCESS(
-            f"Principals: {', '.join(PRINCIPALS)}  (password: {DEMO_PASSWORD})"))
+        from django.conf import settings
+        shown = f"password: {DEMO_PASSWORD}" if settings.DEBUG else "passwords from the environment"
+        self.stdout.write(self.style.SUCCESS(f"Principals: {', '.join(PRINCIPALS)}  ({shown})"))

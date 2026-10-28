@@ -23,5 +23,5 @@ RUN DEBUG=True SECRET_KEY=build PRIVGUARD_SERVER_SECRET=build DATABASE_URL=postg
 
 EXPOSE 8000
 
-# Migrations run at boot; then serve via gunicorn.
-CMD ["sh", "-c", "python manage.py migrate --noinput && gunicorn privguard.wsgi:application --bind 0.0.0.0:8000"]
+# Hosted start: migrate, optionally seed, then gunicorn on $PORT (see start.sh).
+CMD ["./start.sh"]

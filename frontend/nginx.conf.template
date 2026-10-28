@@ -1,0 +1,24 @@
+# Rendered at container start (nginx's official image runs envsubst on /etc/nginx/templates):
+#   PORT          the port to listen on (a hosting platform sets it; default 80)
+#   API_UPSTREAM  where the Django API is, e.g. http://api:8000 (compose) or
+#                 http://api.railway.internal:8000 (Railway private network)
+server {
+  listen ${PORT};
+
+  # One public address for everything: the API, the Django admin (it also serves the monitor
+  # sign-in) and the monitor pages go to the Django service, the rest is the React app.
+  location ~ ^/(api|admin|monitor|static)/ {
+    proxy_pass ${API_UPSTREAM};
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # The platform's edge terminates TLS and tells us which scheme the browser used; pass it on
+    # (falling back to this hop's scheme when there is no edge, as in docker-compose).
+    proxy_set_header X-Forwarded-Proto $forwarded_proto;
+  }
+
+  # SPA fallback.
+  location / {
+    root /usr/share/nginx/html;
+    try_files $uri $uri/ /index.html;
+  }
+}
