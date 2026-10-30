@@ -5,12 +5,13 @@ Backend: Django REST Framework + PostgreSQL + Django ORM.
 Auth: DRF SimpleJWT (core); Google OAuth is a time-permitting add-on.
 Custom user: accounts.Principal (== SYS_PRINCIPAL, the single users table).
 """
+import os
 from datetime import timedelta
 from pathlib import Path
 
 import environ
 
-from .dbopts import with_guardrails
+from .dbopts import database_url, with_guardrails
 from .security import check_secrets
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -95,9 +96,8 @@ ASGI_APPLICATION = "privguard.asgi.application"
 
 # --- Database: PostgreSQL via DATABASE_URL (dj-database-url syntax) ----------
 DATABASES = {
-    "default": env.db(
-        "DATABASE_URL",
-        default="postgres://privguard:privguard@localhost:5432/safehealth",
+    "default": env.db_url_config(
+        database_url(os.environ, "postgres://privguard:privguard@localhost:5432/safehealth")
     )
 }
 

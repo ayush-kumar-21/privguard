@@ -1,7 +1,7 @@
 """The connection guardrails must not drop options that DATABASE_URL carries (sslmode=require)."""
 import environ
 
-from privguard.dbopts import SESSION_OPTIONS, with_guardrails
+from privguard.dbopts import SESSION_OPTIONS, database_url, with_guardrails
 
 
 def parsed(url):
@@ -24,3 +24,27 @@ def test_plain_urls_still_get_the_guardrails():
 def test_url_supplied_startup_options_are_extended_not_replaced():
     db = with_guardrails({"OPTIONS": {"options": "-c search_path=public"}}, 10)
     assert db["OPTIONS"]["options"].startswith("-c search_path=public ") and SESSION_OPTIONS in db["OPTIONS"]["options"]
+
+
+DEFAULT = "postgres://d:d@localhost/d"
+
+
+def test_the_unpooled_url_from_a_hosted_integration_is_preferred():
+    env = {"STORAGE_URL": "postgres://pooled-pooler/x", "STORAGE_URL_UNPOOLED": "postgres://direct/x",
+           "DATABASE_URL": "postgres://explicit/x"}
+    assert database_url(env, DEFAULT) == "postgres://direct/x"
+
+
+def test_any_prefix_and_the_non_pooling_spelling_work():
+    assert database_url({"NEON_URL_UNPOOLED": "postgres://a/x"}, DEFAULT) == "postgres://a/x"
+    assert database_url({"POSTGRES_URL_NON_POOLING": "postgres://b/x"}, DEFAULT) == "postgres://b/x"
+
+
+def test_without_one_database_url_then_the_default_are_used():
+    assert database_url({"DATABASE_URL": "postgres://explicit/x"}, DEFAULT) == "postgres://explicit/x"
+    assert database_url({}, DEFAULT) == DEFAULT
+    assert database_url({"STORAGE_URL_UNPOOLED": ""}, DEFAULT) == DEFAULT  # an empty value is ignored
+
+
+def test_the_pooled_url_alone_is_never_mistaken_for_an_unpooled_one():
+    assert database_url({"STORAGE_URL": "postgres://pooled-pooler/x"}, DEFAULT) == DEFAULT
