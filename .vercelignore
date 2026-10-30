@@ -1,11 +1,12 @@
 # Not needed to build or run the two services; keeps the upload small.
-engine/
-oracle/
-gateway/
-attacks/
-docs/
-tools/
-data/
+# Anchored with a leading slash: an unanchored `data/` also matches frontend/src/routes/data/.
+/engine/
+/oracle/
+/gateway/
+/attacks/
+/docs/
+/tools/
+/data/
 **/node_modules
 **/__pycache__
 **/.venv
