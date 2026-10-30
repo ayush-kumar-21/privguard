@@ -46,3 +46,7 @@ data/
 *.iml
 .vscode/
 .claude/settings.local.json
+
+# local database credentials for one-off setup (never commit)
+.env.neon
+.env.live
