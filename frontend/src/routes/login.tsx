@@ -10,6 +10,13 @@ import { Field, Input } from '../components/ui/input'
 import { apiError } from '../lib/api'
 import { useAuth } from '../stores/auth'
 
+/**
+ * The demo shortcuts and the public demo password are for the dev server and the local compose demo.
+ * A built image hides them unless it is built with VITE_SHOW_DEMO_ACCOUNTS=true, so a public
+ * deployment never advertises a password that is written in the repository.
+ */
+const SHOW_DEMO_ACCOUNTS = import.meta.env.DEV || import.meta.env.VITE_SHOW_DEMO_ACCOUNTS === 'true'
+
 /** Seeded principals from `manage.py seed_demo`, shown so the demo is runnable. */
 const DEMO_ACCOUNTS = [
   { username: 'alice', role: 'analyst', note: 'rho 5.00' },
@@ -161,6 +168,7 @@ export default function LoginPage() {
               </Button>
             </form>
 
+            {SHOW_DEMO_ACCOUNTS ? (
             <div className="mt-10 border-t border-border pt-5">
               <p className="label-micro">demo principals</p>
               <ul className="mt-2.5 grid gap-1">
@@ -191,6 +199,7 @@ export default function LoginPage() {
                 <span className="num"> privguard123</span>.
               </p>
             </div>
+            ) : null}
           </div>
         </div>
       </div>

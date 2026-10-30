@@ -1,0 +1,57 @@
+# A production-mode stack for a short public demo through a tunnel (ngrok or Cloudflare).
+# Separate project name, database and volume, so it never touches the dev stack. Only the UI is
+# published, on localhost; the tunnel connects to it. Secrets come from .env.live (git-ignored):
+#   LIVE_DB_PASSWORD SECRET_KEY PRIVGUARD_SERVER_SECRET PRIVGUARD_DEMO_PASSWORD PRIVGUARD_ADMIN_PASSWORD
+#
+#   docker compose -f docker-compose.live.yml --env-file .env.live up -d --build
+#   ngrok http 8090            # or: cloudflared tunnel --url http://localhost:8090
+name: privguardlive
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: safehealth
+      POSTGRES_USER: privguard
+      POSTGRES_PASSWORD: ${LIVE_DB_PASSWORD:?set LIVE_DB_PASSWORD in .env.live}
+    volumes:
+      - livepg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U privguard -d safehealth"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DEBUG: "False"
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env.live}
+      PRIVGUARD_SERVER_SECRET: ${PRIVGUARD_SERVER_SECRET:?set PRIVGUARD_SERVER_SECRET in .env.live}
+      DATABASE_URL: postgres://privguard:${LIVE_DB_PASSWORD}@db:5432/safehealth
+      PORT: "8000"
+      # The tunnel's public host reaches Django in the Host header; allow the tunnel domains only.
+      ALLOWED_HOSTS: .ngrok-free.app,.ngrok-free.dev,.ngrok.app,.ngrok.dev,.trycloudflare.com,localhost,127.0.0.1
+      CSRF_TRUSTED_ORIGINS: https://*.ngrok-free.app,https://*.ngrok-free.dev,https://*.ngrok.app,https://*.ngrok.dev,https://*.trycloudflare.com
+      PRIVGUARD_SEED_DEMO: "1"
+      PRIVGUARD_DEMO_PASSWORD: ${PRIVGUARD_DEMO_PASSWORD:?set PRIVGUARD_DEMO_PASSWORD in .env.live}
+      PRIVGUARD_ADMIN_PASSWORD: ${PRIVGUARD_ADMIN_PASSWORD:?set PRIVGUARD_ADMIN_PASSWORD in .env.live}
+
+  ui:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      PORT: "80"
+      API_UPSTREAM: http://api:8000
+    ports:
+      - "127.0.0.1:8090:80"
+
+volumes:
+  livepg:

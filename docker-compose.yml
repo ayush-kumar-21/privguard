@@ -45,7 +45,10 @@ services:
              gunicorn privguard.wsgi:application --bind 0.0.0.0:8000 --workers 1 --threads 8 --timeout 60"
 
   ui:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        VITE_SHOW_DEMO_ACCOUNTS: "true"   # the local demo shows the demo accounts; hosted builds do not
     depends_on:
       db:
         condition: service_healthy

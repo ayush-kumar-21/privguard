@@ -16,6 +16,9 @@ COPY package*.json ./
 RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
 
 COPY . .
+# Hidden by default: a public build must not print the repository's demo password on the sign-in page.
+ARG VITE_SHOW_DEMO_ACCOUNTS=false
+ENV VITE_SHOW_DEMO_ACCOUNTS=$VITE_SHOW_DEMO_ACCOUNTS
 RUN npm run build
 
 FROM nginx:alpine
