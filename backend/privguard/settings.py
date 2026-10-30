@@ -5,11 +5,13 @@ Backend: Django REST Framework + PostgreSQL + Django ORM.
 Auth: DRF SimpleJWT (core); Google OAuth is a time-permitting add-on.
 Custom user: accounts.Principal (== SYS_PRINCIPAL, the single users table).
 """
+import os
 from datetime import timedelta
 from pathlib import Path
 
 import environ
 
+from .dbopts import database_url, with_guardrails
 from .security import check_secrets
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -94,22 +96,13 @@ ASGI_APPLICATION = "privguard.asgi.application"
 
 # --- Database: PostgreSQL via DATABASE_URL (dj-database-url syntax) ----------
 DATABASES = {
-    "default": env.db(
-        "DATABASE_URL",
-        default="postgres://privguard:privguard@localhost:5432/safehealth",
+    "default": env.db_url_config(
+        database_url(os.environ, "postgres://privguard:privguard@localhost:5432/safehealth")
     )
 }
 
 # --- Connection pool + session-level guardrails --------------------------------
-DATABASES["default"].update({
-    "CONN_MAX_AGE": env.int("DB_CONN_MAX_AGE", default=60),
-    "CONN_HEALTH_CHECKS": True,
-    "OPTIONS": {
-        "application_name": "privguard-api",
-        "options": "-c statement_timeout=15000 -c lock_timeout=3000 "
-                   "-c idle_in_transaction_session_timeout=30000",
-    },
-})
+with_guardrails(DATABASES["default"], env.int("DB_CONN_MAX_AGE", default=60))
 # Deliberately NOT set: ATOMIC_REQUESTS. See PrivGuard_DB_Plan.md §1 rule 5 —
 # request-scoped transactions would make the RESERVE phase non-durable and
 # collapse the two-phase budget protocol into one phase.
@@ -177,6 +170,9 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+# WhiteNoise finds the admin's files in the installed packages, so a platform that does not run
+# collectstatic (Vercel) still serves the admin's CSS. Docker images collect them at build time.
+WHITENOISE_USE_FINDERS = True
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # --- Monitor (staff-only live pages at /monitor/) ---------------------------------------
