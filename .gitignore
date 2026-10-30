@@ -50,3 +50,6 @@ data/
 # local database credentials for one-off setup (never commit)
 .env.neon
 .env.live
+
+# generated account passwords and app secrets for the Vercel deploy (never commit)
+.env.vercel
