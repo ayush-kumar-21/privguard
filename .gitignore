@@ -46,3 +46,6 @@ data/
 *.iml
 .vscode/
 .claude/settings.local.json
+
+# live (tunnelled) stack secrets
+.env.live
