@@ -121,6 +121,9 @@ jobs:
       DATABASE_URL: postgres://privguard:privguard@localhost:5432/safehealth
       SECRET_KEY: ci-test-key
       PRIVGUARD_SERVER_SECRET: ci-noise-secret
+      # seed_demo refuses to seed accounts with DEBUG off unless these are set (throwaway CI-only values).
+      PRIVGUARD_DEMO_PASSWORD: ci-only-demo-password-1
+      PRIVGUARD_ADMIN_PASSWORD: ci-only-admin-password-1
       DEBUG: "False"
       ALLOWED_HOSTS: localhost,127.0.0.1
 
