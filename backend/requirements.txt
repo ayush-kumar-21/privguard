@@ -14,7 +14,7 @@ argon2-cffi>=25.1.0
 
 # --- DP query layer ---
 sqlglot>=30.25.0
-numpy>=2.5.4
+numpy>=2.5.5
 scipy>=1.18.1
 
 # --- Prod server ---
